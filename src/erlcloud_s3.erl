@@ -24,6 +24,7 @@
          set_object_acl/3, set_object_acl/4,
          make_link/3, make_link/4,
          make_get_url/3, make_get_url/4,
+         make_signed_url/6,
          start_multipart/2, start_multipart/5,
          upload_part/5, upload_part/7,
          complete_multipart/4, complete_multipart/6,
@@ -703,8 +704,8 @@ set_object_acl(BucketName, Key, ACL, Config)
     XMLText = list_to_binary(xmerl:export_simple([XML], xmerl_xml)),
     s3_simple_request(Config, put, BucketName, [$/|Key], "acl", [], XMLText, [{"content-type", "application/xml"}]).
 
--spec sign_get(integer(), string(), string(), aws_config()) -> {binary(), string()}.
-sign_get(Expire_time, BucketName, Key, Config)
+-spec sign_request(integer(), string(), string(), string(), string(), aws_config()) -> {binary(), string()}.
+sign_request(Expire_time, BucketName, Key, Method, Mime, Config)
   when is_integer(Expire_time), is_list(BucketName), is_list(Key) ->
     {Mega, Sec, _Micro} = os:timestamp(),
     Datetime = (Mega * 1000000) + Sec,
@@ -713,26 +714,31 @@ sign_get(Expire_time, BucketName, Key, Config)
         undefined -> "";
         SecurityToken -> "x-amz-security-token:" ++ SecurityToken ++ "\n"
     end,
-    To_sign = lists:flatten(["GET\n\n\n", Expires, "\n", SecurityTokenToSign, "/", BucketName, "/", Key]),
+    To_sign = lists:flatten([Method, "\n\n", Mime, "\n", Expires, "\n", SecurityTokenToSign, "/", BucketName, "/", Key]),
     Sig = base64:encode(erlcloud_util:sha_mac(Config#aws_config.secret_access_key, To_sign)),
     {Sig, Expires}.
 
--spec make_link(integer(), string(), string()) -> {integer(), string(), string()}.
 
+-spec make_link(integer(), string(), string()) -> {integer(), string(), string()}.
 make_link(Expire_time, BucketName, Key) ->
-    make_link(Expire_time, BucketName, Key, default_config()).
+    make_link(Expire_time, BucketName, Key, "GET", "", default_config()).
 
 -spec make_link(integer(), string(), string(), aws_config()) -> {integer(), string(), string()}.
-
 make_link(Expire_time, BucketName, Key, Config) ->
+    make_link(Expire_time, BucketName, Key, "GET", "", Config).
+
+
+-spec make_link(integer(), string(), string(), string(), string(), aws_config()) -> {integer(), string(), string()}.
+make_link(Expire_time, BucketName, Key, Method, Mime, Config) ->
     EncodedKey = erlcloud_http:url_encode_loose(Key),
-    {Sig, Expires} = sign_get(Expire_time, BucketName, EncodedKey, Config),
+    {Sig, Expires} = sign_request(Expire_time, BucketName, EncodedKey, Method, Mime, Config),
     Host = lists:flatten([Config#aws_config.s3_scheme, BucketName, ".", Config#aws_config.s3_host, port_spec(Config)]),
     SecurityTokenQS = case Config#aws_config.security_token of
         undefined -> "";
         SecurityToken -> "&x-amz-security-token=" ++ erlcloud_http:url_encode(SecurityToken)
     end,
-    URI = lists:flatten(["/", EncodedKey, "?AWSAccessKeyId=", erlcloud_http:url_encode(Config#aws_config.access_key_id), "&Signature=", erlcloud_http:url_encode(Sig), "&Expires=", Expires, SecurityTokenQS]),
+    URI = lists:flatten(["/", EncodedKey, "?AWSAccessKeyId=", erlcloud_http:url_encode(Config#aws_config.access_key_id),
+                         "&Signature=", erlcloud_http:url_encode(Sig), "&Expires=", Expires, SecurityTokenQS]),
     {list_to_integer(Expires),
      binary_to_list(erlang:iolist_to_binary(Host)),
      binary_to_list(erlang:iolist_to_binary(URI))}.
@@ -751,14 +757,17 @@ make_link(Expire_time, BucketName, Key, Config) ->
   end.
 
 -spec make_get_url(integer(), string(), string()) -> iolist().
-
 make_get_url(Expire_time, BucketName, Key) ->
     make_get_url(Expire_time, BucketName, Key, default_config()).
 
 -spec make_get_url(integer(), string(), string(), aws_config()) -> iolist().
-
 make_get_url(Expire_time, BucketName, Key, Config) ->
-    {Sig, Expires} = sign_get(Expire_time, BucketName, erlcloud_http:url_encode_loose(Key), Config),
+    make_signed_url(Expire_time, BucketName, Key, "GET", "", Config).
+
+-spec make_signed_url(integer(), string(), string(), string(), string(), aws_config()) -> iolist().
+make_signed_url(Expire_time, BucketName, Key, Method, Mime, Config) ->
+    {Sig, Expires} = sign_request(Expire_time, BucketName, erlcloud_http:url_encode_loose(Key),
+                                  Method, Mime, Config),
     SecurityTokenQS = case Config#aws_config.security_token of
         undefined -> "";
         SecurityToken -> "&x-amz-security-token=" ++ erlcloud_http:url_encode(SecurityToken)
