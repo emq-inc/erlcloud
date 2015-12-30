@@ -24,7 +24,7 @@
          set_object_acl/3, set_object_acl/4,
          make_link/3, make_link/4,
          make_get_url/3, make_get_url/4,
-         make_signed_url/6,
+         make_signed_url/6, make_signed_url/7,
          start_multipart/2, start_multipart/5,
          upload_part/5, upload_part/7,
          complete_multipart/4, complete_multipart/6,
@@ -707,6 +707,11 @@ set_object_acl(BucketName, Key, ACL, Config)
 -spec sign_request(integer(), string(), string(), string(), string(), aws_config()) -> {binary(), string()}.
 sign_request(Expire_time, BucketName, Key, Method, Mime, Config)
   when is_integer(Expire_time), is_list(BucketName), is_list(Key) ->
+    sign_request(Expire_time, BucketName, Key, Method, Mime, [], Config).
+
+-spec sign_request(integer(), string(), string(), string(), string(), proplist(), aws_config()) -> {binary(), string()}.
+sign_request(Expire_time, BucketName, Key, Method, Mime, MetaData, Config)
+  when is_integer(Expire_time), is_list(BucketName), is_list(Key) ->
     {Mega, Sec, _Micro} = os:timestamp(),
     Datetime = (Mega * 1000000) + Sec,
     Expires = integer_to_list(Expire_time + Datetime),
@@ -714,10 +719,12 @@ sign_request(Expire_time, BucketName, Key, Method, Mime, Config)
         undefined -> "";
         SecurityToken -> "x-amz-security-token:" ++ SecurityToken ++ "\n"
     end,
-    To_sign = lists:flatten([Method, "\n\n", Mime, "\n", Expires, "\n", SecurityTokenToSign, "/", BucketName, "/", Key]),
+    MetaDataToSign = lists:sort(
+                       ["x-amz-meta-" ++ string:to_lower(MKey) ++ ":" ++ MValue ++ "\n"
+                       || {MKey, MValue} <- MetaData]),
+    To_sign = lists:flatten([Method, "\n\n", Mime, "\n", Expires, "\n", MetaDataToSign, SecurityTokenToSign, "/", BucketName, "/", Key]),
     Sig = base64:encode(erlcloud_util:sha_mac(Config#aws_config.secret_access_key, To_sign)),
     {Sig, Expires}.
-
 
 -spec make_link(integer(), string(), string()) -> {integer(), string(), string()}.
 make_link(Expire_time, BucketName, Key) ->
@@ -766,16 +773,22 @@ make_get_url(Expire_time, BucketName, Key, Config) ->
 
 -spec make_signed_url(integer(), string(), string(), string(), string(), aws_config()) -> iolist().
 make_signed_url(Expire_time, BucketName, Key, Method, Mime, Config) ->
+    make_signed_url(Expire_time, BucketName, Key, Method, Mime, [], Config).
+
+-spec make_signed_url(integer(), string(), string(), string(), string(), [{string(), string()}], aws_config()) -> iolist().
+make_signed_url(Expire_time, BucketName, Key, Method, Mime, MetaData, Config) ->
     {Sig, Expires} = sign_request(Expire_time, BucketName, erlcloud_http:url_encode_loose(Key),
-                                  Method, Mime, Config),
+                                  Method, Mime, MetaData, Config),
     SecurityTokenQS = case Config#aws_config.security_token of
         undefined -> "";
         SecurityToken -> "&x-amz-security-token=" ++ erlcloud_http:url_encode(SecurityToken)
     end,
+    EncodedMetaData = ["&x-amz-meta-" ++ string:to_lower(MKey) ++ "=" ++ erlcloud_http:url_encode(MValue)
+                       || {MKey, MValue} <- MetaData],
     lists:flatten([get_object_url(BucketName, Key, Config),
      "?AWSAccessKeyId=", erlcloud_http:url_encode(Config#aws_config.access_key_id),
      "&Signature=", erlcloud_http:url_encode(Sig),
-     "&Expires=", Expires,
+     "&Expires=", Expires, EncodedMetaData,
      SecurityTokenQS]).
 
 -spec start_multipart(string(), string()) -> {ok, proplist()} | {error, any()}.
