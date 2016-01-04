@@ -719,10 +719,11 @@ sign_request(Expire_time, BucketName, Key, Method, Mime, MetaData, Config)
         undefined -> "";
         SecurityToken -> "x-amz-security-token:" ++ SecurityToken ++ "\n"
     end,
-    MetaDataToSign = lists:sort(
-                       ["x-amz-meta-" ++ string:to_lower(MKey) ++ ":" ++ MValue ++ "\n"
-                       || {MKey, MValue} <- MetaData]),
-    To_sign = lists:flatten([Method, "\n\n", Mime, "\n", Expires, "\n", MetaDataToSign, SecurityTokenToSign, "/", BucketName, "/", Key]),
+    MetaDataToSign = ["x-amz-meta-" ++ string:to_lower(K) ++ ":" ++
+                      string:join(proplists:get_all_values(K, MetaData), ",") ++ "\n"
+                      || K <- proplists:get_keys(MetaData)],
+    HeadersToSign = lists:sort(MetaDataToSign ++ [SecurityTokenToSign]),
+    To_sign = lists:flatten([Method, "\n\n", Mime, "\n", Expires, "\n", HeadersToSign, "/", BucketName, "/", Key]),
     Sig = base64:encode(erlcloud_util:sha_mac(Config#aws_config.secret_access_key, To_sign)),
     {Sig, Expires}.
 
