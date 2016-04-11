@@ -15,7 +15,7 @@
          receive_message/1, receive_message/2, receive_message/3, receive_message/4,
          receive_message/5, receive_message/6,
          remove_permission/2, remove_permission/3,
-         send_message/2, send_message/3, send_message/4,
+         send_message/2, send_message/3, send_message/4, send_message/5,
          set_queue_attributes/2, set_queue_attributes/3
         ]).
 
@@ -30,8 +30,8 @@
 -type(sqs_msg_attribute_name() :: all | sender_id | sent_timestamp |
                                   approximate_receive_count |
                                   approximate_first_receive_timestamp |
-				  wait_time_seconds |
-				  receive_message_wait_time_seconds).
+                                  wait_time_seconds |
+                                  receive_message_wait_time_seconds).
 -type(sqs_queue_attribute_name() :: all | approximate_number_of_messages |
                                     approximate_number_of_messages_not_visible | visibility_timeout |
                                     created_timestamp | last_modified_timestamp | policy).
@@ -260,7 +260,7 @@ receive_message(QueueName, AttributeNames, MaxNumberOfMessages,
 -spec receive_message/6 :: (string(), [sqs_msg_attribute_name()] | all, 1..10,
                             0..43200 | none, 0..20 | none, aws_config()) -> proplist().
 receive_message(QueueName, all, MaxNumberOfMessages, VisibilityTimeout,
-			   WaitTimeoutSeconds, Config) ->
+                WaitTimeoutSeconds, Config) ->
     receive_message(QueueName, [all], MaxNumberOfMessages,
                     VisibilityTimeout, WaitTimeoutSeconds, Config);
 receive_message(QueueName, AttributeNames, MaxNumberOfMessages,
@@ -346,14 +346,24 @@ send_message(QueueName, MessageBody, Config)
 send_message(QueueName, MessageBody, DelaySeconds) ->
     send_message(QueueName, MessageBody, DelaySeconds, default_config()).
 
--spec send_message/4 :: (string(), string(), 0..900 | none, aws_config()) -> proplist().
+-spec send_message/4 :: (string(), string(), 0..900 | none | list(), aws_config()) -> proplist().
+send_message(QueueName, MessageBody, Attributes, Config)
+  when is_list(QueueName), is_list(MessageBody), is_list(Attributes) ->
+    send_message(QueueName, MessageBody, none, Attributes, Config);
 send_message(QueueName, MessageBody, DelaySeconds, Config)
+  when is_list(QueueName), is_list(MessageBody),
+       (DelaySeconds >= 0 andalso DelaySeconds =< 900) orelse
+       DelaySeconds =:= none ->
+    send_message(QueueName, MessageBody, DelaySeconds, [], Config).
+
+-spec send_message/5 :: (string(), string(), 0..900 | none, list(), aws_config()) -> proplist().
+send_message(QueueName, MessageBody, DelaySeconds, Attributes, Config)
   when is_list(QueueName), is_list(MessageBody),
        (DelaySeconds >= 0 andalso DelaySeconds =< 900) orelse
        DelaySeconds =:= none ->
     Doc = sqs_xml_request(Config, QueueName, "SendMessage",
                           [{"MessageBody", MessageBody},
-			   {"DelaySeconds", DelaySeconds}]),
+                           {"DelaySeconds", DelaySeconds} | encode_msg_attributes(Attributes)]),
     erlcloud_xml:decode(
       [
        {message_id, "SendMessageResult/MessageId", text},
@@ -370,7 +380,7 @@ set_queue_attributes(QueueName, Attributes) ->
 set_queue_attributes(QueueName, Attributes, Config)
   when is_list(QueueName), is_list(Attributes) ->
     Params = lists:flatten(erlcloud_aws:param_list([encode_attribute_name(Name) || {Name, _} <- Attributes], "Attribute.Name"),
-                          erlcloud_aws:param_list([Value || {_, Value} <- Attributes], "Attribute.Value")),
+                           erlcloud_aws:param_list([Value || {_, Value} <- Attributes], "Attribute.Value")),
 
     sqs_simple_request(Config, QueueName, "SetQueueAttributes", Params).
 
@@ -394,3 +404,13 @@ queue_path([$/|_] = QueueName) -> QueueName;
 queue_path([$h,$t,$t,$p|_] = URL) ->
     re:replace(URL, "^https?://[^/]*", "", [{return, list}]);
 queue_path(QueueName) -> [$/|QueueName].
+
+encode_msg_attributes(Attributes) ->
+    lists:flatten(
+      [[{"MessageAttribute." ++ integer_to_list(I) ++ ".Name", K},
+        {"MessageAttribute." ++ integer_to_list(I) ++ ".Value.StringValue", V},
+        {"MessageAttribute." ++ integer_to_list(I) ++ ".Value.DataType", data_type(V)}]
+       ||  {I, {K, V}} <- lists:zip(lists:seq(1, length(Attributes)), Attributes)]).
+
+data_type(V) when is_integer(V) -> "Number";
+data_type(V) when is_list(V); is_binary(V); is_atom(V) -> "String".
