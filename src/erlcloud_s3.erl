@@ -1364,6 +1364,10 @@ s3_request(Config, Method, Host, Path, Subreasource, Params, POSTData, Headers) 
 s3_request2(Config, Method, Bucket, Path, Subresource, Params, POSTData, Headers) ->
     case erlcloud_aws:update_config(Config) of
         {ok, Config1} ->
+%%% WARNING
+%%% XXX EMQ: Rain can't make s3_request4_no_update work(always get SignatureDoesNotMatch)
+%%% So we use s3_request2_no_update for now. It may break if you merge original repo to it
+%%% WARNING
             case s3_request2_no_update(Config1, Method, Bucket, Path,
                    Subresource, Params, POSTData, Headers)
             of
