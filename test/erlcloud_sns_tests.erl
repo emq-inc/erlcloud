@@ -1,8 +1,8 @@
 %% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 -module(erlcloud_sns_tests).
 -include_lib("eunit/include/eunit.hrl").
--include("erlcloud.hrl").
--include_lib("../include/erlcloud_aws.hrl").
+% -include("erlcloud.hrl").
+-include("erlcloud_aws.hrl").
 
 %% Unit tests for sns.
 %% These tests work by using meck to mock httpc. There are two classes of test: input and output.
@@ -40,10 +40,14 @@ sns_api_test_() ->
       fun set_topic_attributes_input_tests/1,
       fun set_topic_attributes_output_tests/1,
       fun list_topics_input_tests/1,
-      fun list_topics_output_tests/1
+      fun list_topics_output_tests/1,
+      fun list_subscriptions_by_topic_input_tests/1,
+      fun list_subscriptions_by_topic_output_tests/1
      ]}.
 
 start() ->
+    erlcloud_sns:configure(string:copies("A", 20), string:copies("a", 40)),
+
     meck:new(erlcloud_httpc),
     meck:expect(erlcloud_httpc, request,
                  fun(_,_,_,_,_,_) -> mock_httpc_response() end),
@@ -88,7 +92,7 @@ validate_param(Param, Expected) ->
             Expected1 = lists:delete({Key, Value}, Expected),
             case length(Expected) - 1 =:= length(Expected1) of
                 true -> ok;
-                false -> 
+                false ->
                     ?debugFmt("Parameter not expected: ~p", [{Key, Value}])
             end,
             ?assertEqual(length(Expected) - 1, length(Expected1)),
@@ -107,9 +111,9 @@ validate_params(Body, Expected) ->
 %% Validates the query body and responds with the provided response.
 -spec input_expect(string(), [expected_param()]) -> fun().
 input_expect(Response, Expected) ->
-    fun(_Url, post, _Headers, Body, _Timeout, _Config) -> 
+    fun(_Url, post, _Headers, Body, _Timeout, _Config) ->
             validate_params(Body, Expected),
-            {ok, {{200, "OK"}, [], list_to_binary(Response)}} 
+            {ok, {{200, "OK"}, [], list_to_binary(Response)}}
     end.
 
 %% input_test converts an input_test specifier into an eunit test generator
@@ -117,7 +121,7 @@ input_expect(Response, Expected) ->
 -spec input_test(string(), input_test_spec()) -> tuple().
 input_test(Response, {Line, {Description, Fun, Params}}) when
       is_list(Description) ->
-    {Description, 
+    {Description,
      {Line,
       fun() ->
               meck:expect(erlcloud_httpc, request, input_expect(Response, Params)),
@@ -141,8 +145,8 @@ input_tests(Response, Tests) ->
 %% returns the mock of the httpc function output tests expect to be called.
 -spec output_expect(string()) -> fun().
 output_expect(Response) ->
-    fun(_Url, post, _Headers, _Body, _Timeout, _Config) -> 
-            {ok, {{200, "OK"}, [], list_to_binary(Response)}} 
+    fun(_Url, post, _Headers, _Body, _Timeout, _Config) ->
+            {ok, {{200, "OK"}, [], list_to_binary(Response)}}
     end.
 
 %% output_test converts an output_test specifier into an eunit test generator
@@ -157,9 +161,9 @@ output_test(Fun, {Line, {Description, Response, Result}}) ->
               Actual = Fun(),
               ?assertEqual(Result, Actual)
       end}}.
-      
+
 %% output_tests converts a list of output_test specifiers into an eunit test generator
--spec output_tests(fun(), [output_test_spec()]) -> [term()].       
+-spec output_tests(fun(), [output_test_spec()]) -> [term()].
 output_tests(Fun, Tests) ->
     [output_test(Fun, Test) || Test <- Tests].
 
@@ -207,7 +211,7 @@ create_topic_output_tests(_) ->
 %% DeleteTopic test based on the API examples:
 %% http://docs.aws.amazon.com/sns/latest/APIReference/API_DeleteTopic.html
 delete_topic_input_tests(_) ->
-    Tests = 
+    Tests =
         [?_sns_test(
             {"Test deletes a topic in a region.",
              ?_f(erlcloud_sns:delete_topic("My-Topic")),
@@ -225,14 +229,14 @@ delete_topic_input_tests(_) ->
         </DeleteTopicResponse>",
 
     input_tests(Response, Tests).
- 
+
 %% Subscribe test based on the API examples:
 %% http://docs.aws.amazon.com/sns/latest/APIReference/API_Subscribe.html
 subscribe_input_tests(_) ->
-    Tests = 
+    Tests =
         [?_sns_test(
             {"Test to prepares to subscribe an endpoint.",
-             ?_f(erlcloud_sns:subscribe("arn:aws:sqs:us-west-2:123456789012:MyQueue", sqs, 
+             ?_f(erlcloud_sns:subscribe("arn:aws:sqs:us-west-2:123456789012:MyQueue", sqs,
                                         "arn:aws:sns:us-west-2:123456789012:MyTopic")),
              [
               {"Action", "Subscribe"},
@@ -253,7 +257,7 @@ subscribe_input_tests(_) ->
                 </SubscribeResponse>",
 
     input_tests(Response, Tests).
- 
+
 subscribe_output_tests(_) ->
     Tests = [?_sns_test(
                 {"This is a create topic test",
@@ -267,14 +271,14 @@ subscribe_output_tests(_) ->
                         </SubscribeResponse>",
                 "arn:aws:sns:us-west-2:123456789012:MyTopic:6b0e71bd-7e97-4d97-80ce-4a0994e55286"})
             ],
-    output_tests(?_f(erlcloud_sns:subscribe("arn:aws:sqs:us-west-2:123456789012:MyQueue", sqs, 
+    output_tests(?_f(erlcloud_sns:subscribe("arn:aws:sqs:us-west-2:123456789012:MyQueue", sqs,
                                         "arn:aws:sns:us-west-2:123456789012:MyTopic")), Tests).
 
 
 %% Set topic attributes test based on the API examples:
 %% http://docs.aws.amazon.com/sns/latest/APIReference/API_SetTopicAttributes.html
 set_topic_attributes_input_tests(_) ->
-    Tests = 
+    Tests =
         [?_sns_test(
             {"Test sets topic's attribute.",
              ?_f(erlcloud_sns:set_topic_attributes("DisplayName", "MyTopicName", "arn:aws:sns:us-west-2:123456789012:MyTopic")),
@@ -294,7 +298,7 @@ set_topic_attributes_input_tests(_) ->
                </SetTopicAttributesResponse> ",
 
     input_tests(Response, Tests).
- 
+
 set_topic_attributes_output_tests(_) ->
     Tests = [?_sns_test(
                 {"This test sets topic's attribute.",
@@ -422,6 +426,140 @@ list_topics_output_tests(_) ->
                     [{arn, "arn:aws:sns:us-east-1:123456789012:My-Another-Topic"}]
                   ]})
             ]).
+
+%% List Subscriptions By Topic  test based on the API example:
+%% http://docs.aws.amazon.com/sns/latest/api/API_ListSubscriptionsByTopic.html
+list_subscriptions_by_topic_input_tests(_) ->
+  Tests =
+    [?_sns_test(
+      {"Test lists Subscriptions.",
+        ?_f(erlcloud_sns:list_subscriptions_by_topic("Arn")),
+        [
+          {"Action","ListSubscriptionsByTopic"},
+          {"TopicArn", "Arn"}
+        ]}),
+      ?_sns_test(
+        {"Test lists Subscriptions toke.",
+          ?_f(erlcloud_sns:list_subscriptions_by_topic("Arn", "Token")),
+          [
+            {"Action","ListSubscriptionsByTopic"},
+            {"TopicArn", "Arn"},
+            {"NextToken", "Token"}
+          ]}),
+      ?_sns_test(
+        {"Test lists Subscriptions all.",
+          ?_f(erlcloud_sns:list_subscriptions_by_topic_all("Arn")),
+          [
+            {"Action","ListSubscriptionsByTopic"},
+            {"TopicArn", "Arn"}
+          ]})
+    ],
+
+  Response = "<ListSubscriptionsByTopicResponse xmlns=\"http://sns.amazonaws.com/doc/2010-03-31/\">
+                <ListSubscriptionsByTopicResult>
+                  <Subscriptions>
+                    <member>
+                      <TopicArn>arn:aws:sns:us-east-1:123456789012:My-Topic</TopicArn>
+                      <Protocol>email</Protocol>
+                      <SubscriptionArn>arn:aws:sns:us-east-1:123456789012:My-Topic:80289ba6-0fd4-4079-afb4-ce8c8260f0ca</SubscriptionArn>
+                      <Owner>123456789012</Owner>
+                      <Endpoint>example@amazon.com</Endpoint>
+                    </member>
+                  </Subscriptions>
+                </ListSubscriptionsByTopicResult>
+                <ResponseMetadata>
+                  <RequestId>b9275252-3774-11df-9540-99d0768312d3</RequestId>
+                </ResponseMetadata>
+              </ListSubscriptionsByTopicResponse>",
+
+  input_tests(Response, Tests).
+
+list_subscriptions_by_topic_output_tests(_) ->
+  output_tests(?_f(erlcloud_sns:list_subscriptions_by_topic("arn:aws:sns:us-east-1:123456789012:My-Topic")),
+    [?_sns_test(
+      {"Test lists Subscriptions.",
+        "<ListSubscriptionsByTopicResponse xmlns=\"http://sns.amazonaws.com/doc/2010-03-31/\">
+          <ListSubscriptionsByTopicResult>
+            <Subscriptions>
+              <member>
+                <TopicArn>arn:aws:sns:us-east-1:123456789012:My-Topic</TopicArn>
+                <Protocol>email</Protocol>
+                <SubscriptionArn>arn:aws:sns:us-east-1:123456789012:My-Topic:80289ba6-0fd4-4079-afb4-ce8c8260f0ca</SubscriptionArn>
+                <Owner>123456789012</Owner>
+                <Endpoint>example@amazon.com</Endpoint>
+              </member>
+            </Subscriptions>
+          </ListSubscriptionsByTopicResult>
+          <ResponseMetadata>
+            <RequestId>b9275252-3774-11df-9540-99d0768312d3</RequestId>
+          </ResponseMetadata>
+        </ListSubscriptionsByTopicResponse>",
+        [{subsriptions,
+          [
+            [{topic_arn, "arn:aws:sns:us-east-1:123456789012:My-Topic"},
+             {protocol, "email"},
+             {arn, "arn:aws:sns:us-east-1:123456789012:My-Topic:80289ba6-0fd4-4079-afb4-ce8c8260f0ca"},
+             {owner, "123456789012"},
+             {endpoint, "example@amazon.com"}]
+          ]},
+          {next_token, ""}
+        ]}),
+      ?_sns_test(
+        {"Test lists Subscriptions with token.",
+          "<ListSubscriptionsByTopicResponse xmlns=\"http://sns.amazonaws.com/doc/2010-03-31/\">
+            <ListSubscriptionsByTopicResult>
+              <Subscriptions>
+                <member>
+                  <TopicArn>arn:aws:sns:us-east-1:123456789012:My-Topic</TopicArn>
+                  <Protocol>email</Protocol>
+                  <SubscriptionArn>arn:aws:sns:us-east-1:123456789012:My-Topic:80289ba6-0fd4-4079-afb4-ce8c8260f0ca</SubscriptionArn>
+                  <Owner>123456789012</Owner>
+                  <Endpoint>example@amazon.com</Endpoint>
+                </member>
+              </Subscriptions>
+              <NextToken>token</NextToken>
+            </ListSubscriptionsByTopicResult>
+            <ResponseMetadata>
+              <RequestId>b9275252-3774-11df-9540-99d0768312d3</RequestId>
+            </ResponseMetadata>
+          </ListSubscriptionsByTopicResponse>",
+          [{subsriptions,
+            [
+              [{topic_arn, "arn:aws:sns:us-east-1:123456789012:My-Topic"},
+                {protocol, "email"},
+                {arn, "arn:aws:sns:us-east-1:123456789012:My-Topic:80289ba6-0fd4-4079-afb4-ce8c8260f0ca"},
+                {owner, "123456789012"},
+                {endpoint, "example@amazon.com"}]
+            ]},
+            {next_token, "token"}
+          ]})
+    ]) ++
+  output_tests(?_f(erlcloud_sns:list_subscriptions_by_topic_all("arn:aws:sns:us-east-1:123456789012:My-Topic")),
+    [?_sns_test(
+      {"Test lists topics all.",
+        "<ListSubscriptionsByTopicResponse xmlns=\"http://sns.amazonaws.com/doc/2010-03-31/\">
+             <ListSubscriptionsByTopicResult>
+               <Subscriptions>
+                 <member>
+                   <TopicArn>arn:aws:sns:us-east-1:123456789012:My-Topic</TopicArn>
+                   <Protocol>email</Protocol>
+                   <SubscriptionArn>arn:aws:sns:us-east-1:123456789012:My-Topic:80289ba6-0fd4-4079-afb4-ce8c8260f0ca</SubscriptionArn>
+                   <Owner>123456789012</Owner>
+                   <Endpoint>example@amazon.com</Endpoint>
+                 </member>
+               </Subscriptions>
+             </ListSubscriptionsByTopicResult>
+             <ResponseMetadata>
+               <RequestId>b9275252-3774-11df-9540-99d0768312d3</RequestId>
+             </ResponseMetadata>
+           </ListSubscriptionsByTopicResponse>",
+        [[{topic_arn, "arn:aws:sns:us-east-1:123456789012:My-Topic"},
+              {protocol, "email"},
+              {arn, "arn:aws:sns:us-east-1:123456789012:My-Topic:80289ba6-0fd4-4079-afb4-ce8c8260f0ca"},
+              {owner, "123456789012"},
+              {endpoint, "example@amazon.com"}]
+        ]})
+    ]).
 
 
 

@@ -2,6 +2,7 @@
 -module(erlcloud_kinesis_tests).
 -include_lib("eunit/include/eunit.hrl").
 -include("erlcloud.hrl").
+-include("erlcloud_aws.hrl").
 %%-include("erlcloud_kinesis.hrl").
 
 %% Unit tests for kinesis.
@@ -40,8 +41,11 @@ operation_test_() ->
       fun get_shard_iterator_output_tests/1,
       fun get_records_input_tests/1,
       fun get_records_output_tests/1,
+      fun get_records_no_decode_output_tests/1,
       fun put_record_input_tests/1,
       fun put_record_output_tests/1,
+      fun put_records_input_tests/1,
+      fun put_records_output_tests/1,
       fun merge_shards_input_tests/1,
       fun merge_shards_output_tests/1,
       fun split_shards_input_tests/1,
@@ -58,6 +62,11 @@ stop(_) ->
 %%%===================================================================
 %%% Input test helpers
 %%%===================================================================
+
+config() ->
+    #aws_config{
+      access_key_id = string:copies("A", 20),
+      secret_access_key = string:copies("a", 40)}.
 
 -type expected_body() :: string().
 
@@ -445,6 +454,31 @@ get_records_output_tests(_) ->
 
     output_tests(?_f(erlcloud_kinesis:get_records(<<"AAAAAAAAAAEuncwaAk+GTC2TIdmdg5w6dIuZ4Scu6vaMGPtaPUfopvw9cBm2NM3Rlj9WyI5JFJr2ahuSh3Z187AdW4Lug86E">>)), Tests).
 
+get_records_no_decode_output_tests(_) ->
+    Input = "
+{
+    \"NextShardIterator\": \"AAAAAAAAAAEkuCmrC+QDW1gUywyu7G8GxvRyM6GSMkcHQ9wrvCJBW87mjn9C8YEckkipaoJySwgKXMmn1BwSPjnjiUCsu6pc\",
+    \"Records\": [
+        {
+            \"Data\": \"YXNkYXNk\",
+            \"PartitionKey\": \"key\",
+            \"SequenceNumber\": \"49537292605574028653758531131893428543501381406818304001\"
+        },
+        {
+            \"Data\": \"YXNkYXNkIDIxMzEyMzEyMw==\",
+            \"PartitionKey\": \"key\",
+            \"SequenceNumber\": \"49537292605574028653758541428570459745183078607853977601\"
+        }
+    ]
+}",
+    Tests = [
+        ?_kinesis_test({"GetRecords example response (no decode)", Input,
+                        {ok, list_to_binary(Input)}})
+    ],
+    ShardIterator = <<"AAAAAAAAAAEuncwaAk+GTC2TIdmdg5w6dIuZ4Scu6vaMGPtaPUfopvw9cBm2NM3Rlj9WyI5JFJr2ahuSh3Z187AdW4Lug86E">>,
+    Config = config(),
+    output_tests(?_f(erlcloud_kinesis:get_records(ShardIterator, 10000, [{decode, false}], Config)), Tests).
+
 %% PutRecord test based on the API examples:
 %% ttp://docs.aws.amazon.com/kinesis/latest/APIReference/API_PutRecord.html
 put_record_input_tests(_) ->
@@ -458,6 +492,15 @@ put_record_input_tests(_) ->
   \"PartitionKey\": \"key\"
 }"
             }),
+         ?_kinesis_test(
+             {"PutRecord example request",
+              ?_f(erlcloud_kinesis:put_record(<<"test">>, <<"key">>, <<"abcdef">>, undefined, undefined, [{encode, false}])), "
+{
+  \"Data\": \"abcdef\",
+  \"StreamName\": \"test\",
+  \"PartitionKey\": \"key\"
+}"
+             }),
         ?_kinesis_test(
             {"PutRecord example request",
              ?_f(erlcloud_kinesis:put_record(<<"test">>, <<"key1">>, <<"asdasd 213123123">>)), "
@@ -492,6 +535,71 @@ put_record_output_tests(_) ->
 
     output_tests(?_f(erlcloud_kinesis:put_record(<<"test">>, <<"key">>, <<"asdasd">>)), Tests).
 
+
+put_records_input_tests(_) ->
+    Tests =
+        [?_kinesis_test(
+            {"PutRecords example request",
+             ?_f(erlcloud_kinesis:put_records(<<"test">>, [{<<"asdasd">>, <<"key">>}])), "
+{
+  \"StreamName\": \"test\",
+  \"Records\": [
+    {
+      \"Data\": \"YXNkYXNk\",
+      \"PartitionKey\": \"key\"
+    }
+  ]
+}"
+            }),
+        ?_kinesis_test(
+            {"PutRecords example request",
+             ?_f(erlcloud_kinesis:put_records(<<"test">>, [{<<"asdasd 213123123">>, <<"hash_key1">>, <<"key1">>}])), "
+{
+  \"StreamName\": \"test\",
+  \"Records\": [
+    {
+      \"Data\": \"YXNkYXNkIDIxMzEyMzEyMw==\",
+      \"ExplicitHashKey\": \"hash_key1\",
+      \"PartitionKey\": \"key1\"
+    }
+  ]
+}"
+            })
+        ],
+
+    Response = "
+{
+    \"SequenceNumber\": \"49537292605574028653758531131893428543501381406818304001\",
+    \"ShardId\": \"shardId-000000000000\"
+}",
+    input_tests(Response, Tests).
+
+put_records_output_tests(_) ->
+    Tests =
+        [?_kinesis_test(
+            {"PutRecords example response", "
+{
+    \"FailedRecordCount\": 0,
+    \"Records\": [
+    {
+      \"SequenceNumber\": \"49537292605574028653758531131893428543501381406818304001\",
+      \"ShardId\": \"shardId-000000000000\"
+    }
+  ]
+}",
+        {ok, [{<<"FailedRecordCount">>, 0},
+              {<<"Records">>,
+               [
+                [{<<"SequenceNumber">>,
+                  <<"49537292605574028653758531131893428543501381406818304001">>},
+                 {<<"ShardId">>,<<"shardId-000000000000">>}]
+               ]}
+             ]
+         }
+        })
+        ],
+
+    output_tests(?_f(erlcloud_kinesis:put_records(<<"test">>, [{<<"asdasd">>, <<"key">>}])), Tests).
 
 %% MergeShards test based on the API examples:
 %% http://docs.aws.amazon.com/kinesis/latest/APIReference/API_MergeShards.html
