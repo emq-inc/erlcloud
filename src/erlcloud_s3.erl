@@ -986,8 +986,14 @@ sign_request(Expire_time, BucketName, Key, Method, Mime, MetaData, Config)
     MetaDataToSign = ["x-amz-meta-" ++ string:to_lower(K) ++ ":" ++
                       string:join(proplists:get_all_values(K, MetaData), ",") ++ "\n"
                       || K <- proplists:get_keys(MetaData)],
-    HeadersToSign = lists:sort(MetaDataToSign ++ [SecurityTokenToSign]),
-    To_sign = lists:flatten([Method, "\n\n", Mime, "\n", Expires, "\n", HeadersToSign, "/", BucketName, "/", Key]),
+    HeadersToSign = MetaDataToSign ++ [SecurityTokenToSign],
+    % Assume all uploading actions use SEE
+    HeadersToSign2 = case Method of
+      "PUT" -> HeadersToSign ++ ["x-amz-server-side-encryption:AES256\n"];
+      _ -> HeadersToSign
+    end,
+    HeadersToSign3 = lists:sort(HeadersToSign2),
+    To_sign = lists:flatten([Method, "\n\n", Mime, "\n", Expires, "\n", HeadersToSign3, "/", BucketName, "/", Key]),
     Sig = base64:encode(erlcloud_util:sha_mac(Config#aws_config.secret_access_key, To_sign)),
     {Sig, Expires}.
 
