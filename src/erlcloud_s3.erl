@@ -1122,17 +1122,20 @@ make_presigned_v4_url(ExpireTime, BucketName, Method, Key, QueryParams, Config) 
     Region = erlcloud_aws:aws_region_from_host(Config#aws_config.s3_host),
     Date = erlcloud_aws:iso_8601_basic_time(),
 
-     Credential = erlcloud_aws:credential(Config, Date, Region, "s3"),
+    Credential = erlcloud_aws:credential(Config, Date, Region, "s3"),
 
-     QP1 = [{"X-Amz-Algorithm", "AWS4-HMAC-SHA256"},
+    QP1 = [{"X-Amz-Algorithm", "AWS4-HMAC-SHA256"},
            {"X-Amz-Credential", Credential},
            {"X-Amz-Date", Date},
-           {"X-Amz-Expires", integer_to_list(ExpireTime)},
-           {"X-Amz-SignedHeaders", "host"}] ++ QueryParams,
-    Headers = [{"host", Host}],
+           {"X-Amz-Expires", integer_to_list(ExpireTime)}] ++ QueryParams,
+    Headers = case Method of
+                  put -> [{"host", Host}, {"x-amz-server-side-encryption", "AES256"}];
+                  _ -> [{"host", Host}]
+              end,
+    QP2 = [{"X-Amz-SignedHeaders", string:join([K || {K, _} <- Headers], ";")}] ++ QP1,
     Payload = "UNSIGNED-PAYLOAD",
-    Signature = signature(Config, Path, Date, Region, Method, QP1, Headers, Payload),
-    QueryStr = erlcloud_http:make_query_string(QP1 ++ [{"X-Amz-Signature", Signature}], no_assignment),
+    Signature = signature(Config, Path, Date, Region, Method, QP2, Headers, Payload),
+    QueryStr = erlcloud_http:make_query_string(QP2 ++ [{"X-Amz-Signature", Signature}], no_assignment),
     lists:flatten([URL, "?", QueryStr]).
 
 -spec make_get_url(integer(), string(), string()) -> iolist().
