@@ -68,7 +68,7 @@
 %% to handle conditional check failures, match `{error,
 %% {<<"ConditionalCheckFailedException">>, _}}'.
 %%
-%% `erlcloud_ddb_impl' provides a higher level API that implements common
+%% `erlcloud_ddb_util' provides a higher level API that implements common
 %% operations that may require multiple DynamoDB API calls.
 %%
 %% See the unit tests for additional usage examples beyond what are
@@ -83,23 +83,42 @@
 -include("erlcloud_ddb2.hrl").
 
 %%% Library initialization.
--export([configure/2, configure/3, new/2, new/3]).
+-export([configure/2, configure/3, configure/4, configure/5,
+         new/2, new/3, new/4, new/5]).
 
 %%% DynamoDB API
 -export([batch_get_item/1, batch_get_item/2, batch_get_item/3,
          batch_write_item/1, batch_write_item/2, batch_write_item/3,
-         create_table/5, create_table/6, create_table/7,
+         create_backup/2, create_backup/3, create_backup/4,
+         create_global_table/2, create_global_table/3, create_global_table/4,
+         create_table/4, create_table/5, create_table/6, create_table/7,
+         delete_backup/1, delete_backup/2, delete_backup/3,
          delete_item/2, delete_item/3, delete_item/4,
          delete_table/1, delete_table/2, delete_table/3,
+         describe_backup/1, describe_backup/2, describe_backup/3,
+         describe_continuous_backups/1, describe_continuous_backups/2, describe_continuous_backups/3,
+         describe_global_table/1, describe_global_table/2, describe_global_table/3,
+         describe_limits/0, describe_limits/1, describe_limits/2,
          describe_table/1, describe_table/2, describe_table/3,
+         describe_time_to_live/1, describe_time_to_live/2, describe_time_to_live/3,
          get_item/2, get_item/3, get_item/4,
+         list_backups/0, list_backups/1, list_backups/2,
+         list_global_tables/0, list_global_tables/1, list_global_tables/2,
          list_tables/0, list_tables/1, list_tables/2,
+         list_tags_of_resource/1, list_tags_of_resource/2, list_tags_of_resource/3,
          put_item/2, put_item/3, put_item/4,
          %% Note that query is a Erlang reserved word, so we use q instead
          q/2, q/3, q/4,
+         restore_table_from_backup/2, restore_table_from_backup/3, restore_table_from_backup/4,
+         restore_table_to_point_in_time/2, restore_table_to_point_in_time/3, restore_table_to_point_in_time/4,
          scan/1, scan/2, scan/3,
+         tag_resource/2, tag_resource/3,
+         untag_resource/2, untag_resource/3,
+         update_continuous_backups/2, update_continuous_backups/3, update_continuous_backups/4,
          update_item/3, update_item/4, update_item/5,
-         update_table/2, update_table/3, update_table/4, update_table/5
+         update_global_table/2, update_global_table/3, update_global_table/4,
+         update_table/2, update_table/3, update_table/4, update_table/5,
+         update_time_to_live/2, update_time_to_live/3, update_time_to_live/4
         ]).
 
 -export_type(
@@ -121,6 +140,7 @@
     batch_write_item_request_item/0,
     batch_write_item_return/0,
     boolean_opt/1,
+    billing_mode/0,
     comparison_op/0,
     condition/0,
     conditional_op/0,
@@ -137,6 +157,7 @@
     delete_item_return/0,
     delete_table_return/0,
     describe_table_return/0,
+    describe_time_to_live_return/0,
     expected_opt/0,
     expression/0,
     expression_attribute_names/0,
@@ -177,6 +198,9 @@
     q_return/0,
     range_key_name/0,
     read_units/0,
+    replica/0,
+    replica_description/0,
+    replica_update/0,
     return_consumed_capacity/0,
     return_consumed_capacity_opt/0,
     return_item_collection_metrics/0,
@@ -185,14 +209,22 @@
     scan_opt/0,
     scan_opts/0,
     scan_return/0,
+    sse_description/0,
+    sse_specification/0,
     stream_specification/0,
     select/0,
     table_name/0,
+    tag_key/0,
+    tag_value/0,
+    tag/0,
+    tags/0,
+    time_to_live_status/0,
     update_action/0,
     update_item_opt/0,
     update_item_opts/0,
     update_item_return/0,
     update_table_return/0,
+    update_time_to_live_return/0,
     write_units/0
    ]).
 
@@ -200,26 +232,47 @@
 %%% Library initialization.
 %%%------------------------------------------------------------------------------
 
--spec(new/2 :: (string(), string()) -> aws_config()).
+-spec new(string(), string()) -> aws_config().
 new(AccessKeyID, SecretAccessKey) ->
     #aws_config{access_key_id=AccessKeyID,
                 secret_access_key=SecretAccessKey}.
 
--spec(new/3 :: (string(), string(), string()) -> aws_config()).
+-spec new(string(), string(), string()) -> aws_config().
 new(AccessKeyID, SecretAccessKey, Host) ->
     #aws_config{access_key_id=AccessKeyID,
                 secret_access_key=SecretAccessKey,
                 ddb_host=Host}.
 
--spec(configure/2 :: (string(), string()) -> ok).
-configure(AccessKeyID, SecretAccessKey) ->
-    put(aws_config, new(AccessKeyID, SecretAccessKey)),
-    ok.
+-spec new(string(), string(), string(), non_neg_integer()) -> aws_config().
+new(AccessKeyID, SecretAccessKey, Host, Port) ->
+    #aws_config{access_key_id=AccessKeyID,
+                secret_access_key=SecretAccessKey,
+                ddb_host=Host,
+                ddb_port=Port}.
 
--spec(configure/3 :: (string(), string(), string()) -> ok).
+-spec new(string(), string(), string(), non_neg_integer(), string()) -> aws_config().
+new(AccessKeyID, SecretAccessKey, Host, Port, Scheme) ->
+    #aws_config{access_key_id=AccessKeyID,
+                secret_access_key=SecretAccessKey,
+                ddb_host=Host,
+                ddb_port=Port,
+                ddb_scheme=Scheme}.
+
+-spec configure(string(), string()) -> ok.
+configure(AccessKeyID, SecretAccessKey) ->
+    erlcloud_config:configure(AccessKeyID, SecretAccessKey, fun new/2).
+
+-spec configure(string(), string(), string()) -> ok.
 configure(AccessKeyID, SecretAccessKey, Host) ->
-    put(aws_config, new(AccessKeyID, SecretAccessKey, Host)),
-    ok.
+    erlcloud_config:configure(AccessKeyID, SecretAccessKey, Host, fun new/3).
+
+-spec configure(string(), string(), string(), non_neg_integer()) -> ok.
+configure(AccessKeyID, SecretAccessKey, Host, Port) ->
+    erlcloud_config:configure(AccessKeyID, SecretAccessKey, Host, Port, fun new/4).
+
+-spec configure(string(), string(), string(), non_neg_integer(), string()) -> ok.
+configure(AccessKeyID, SecretAccessKey, Host, Port, Scheme) ->
+    erlcloud_config:configure(AccessKeyID, SecretAccessKey, Host, Port, Scheme, fun new/5).
 
 default_config() -> erlcloud_aws:default_config().
 
@@ -271,15 +324,26 @@ default_config() -> erlcloud_aws:default_config().
 -type read_units() :: pos_integer().
 -type write_units() :: pos_integer().
 
+-type billing_mode() :: provisioned | pay_per_request.
+
 -type index_name() :: binary().
 -type projection() :: keys_only |
                       {include, [attr_name()]} |
                       all.
 
--type global_secondary_index_def() :: {index_name(), key_schema(), projection(), read_units(), write_units()}.
+-type global_secondary_index_def() :: {index_name(), key_schema(), projection()} |
+                                      {index_name(), key_schema(), projection(), read_units(), write_units()}.
+
+-type sse_description_status() :: enabling | enabled | disabling | disabled.
+-type sse_description() :: {status, sse_description_status()}.
+-type sse_specification() :: {enabled, boolean()}.
 
 -type stream_view_type() :: keys_only | new_image | old_image | new_and_old_images.
 -type stream_specification() :: false | {true, stream_view_type()}.
+
+-type replica() :: {region_name, binary()} | #ddb2_replica{}.
+-type replica_update() :: {create | delete, replica()}.
+-type replica_description() :: #ddb2_replica_description{}.
 
 -type return_value() :: none | all_old | updated_old | all_new | updated_new.
 
@@ -303,6 +367,11 @@ default_config() -> erlcloud_aws:default_config().
 
 -type return_consumed_capacity() :: none | total | indexes.
 -type return_item_collection_metrics() :: none | size.
+
+-type tag_key() :: binary().
+-type tag_value() :: binary().
+-type tag() :: {tag_key(), tag_value()}.
+-type tags() :: [tag()].
 
 -type out_attr_value() :: binary() | number() | boolean() | undefined |
                           [binary()] | [number()] | [out_attr_value()] | [out_attr()].
@@ -361,6 +430,9 @@ dynamize_value({bs, Value}) when is_list(Value) ->
 
 dynamize_value({l, Value}) when is_list(Value) ->
     {<<"L">>, [[dynamize_value(V)] || V <- Value]};
+dynamize_value({m, []}) ->
+    %% jsx represents empty objects as [{}]
+    {<<"M">>, [{}]};
 dynamize_value({m, Value}) when is_list(Value) ->
     {<<"M">>, [dynamize_attr(Attr) || Attr <- Value]};
 
@@ -422,6 +494,10 @@ dynamize_provisioned_throughput({ReadUnits, WriteUnits}) ->
       {<<"WriteCapacityUnits">>, WriteUnits}].
 
 -spec dynamize_global_secondary_index(global_secondary_index_def()) -> jsx:json_term().
+dynamize_global_secondary_index({IndexName, KeySchema, Projection}) ->
+    [{<<"IndexName">>, IndexName},
+     {<<"KeySchema">>, dynamize_key_schema(KeySchema)},
+     {<<"Projection">>, dynamize_projection(Projection)}];
 dynamize_global_secondary_index({IndexName, KeySchema, Projection, ReadUnits, WriteUnits}) ->
     [{<<"IndexName">>, IndexName},
      {<<"KeySchema">>, dynamize_key_schema(KeySchema)},
@@ -477,10 +553,6 @@ dynamize_item(Item) when is_list(Item) ->
     [dynamize_attr(Attr) || Attr <- Item];
 dynamize_item(Item) ->
     error({erlcloud_ddb, {invalid_item, Item}}).
-
--spec dynamize_expression(expression()) -> binary().
-dynamize_expression(Expression) ->
-    Expression.
 
 -spec dynamize_expression_attribute_names(expression_attribute_names()) -> [json_pair()].
 dynamize_expression_attribute_names(Names) ->
@@ -608,6 +680,9 @@ undynamize_value({<<"BS">>, Values}, _) ->
     [base64:decode(Value) || Value <- Values];
 undynamize_value({<<"L">>, List}, Opts) ->
     [undynamize_value(Value, Opts) || [Value] <- List];
+undynamize_value({<<"M">>, [{}]}, _Opts) ->
+    %% jsx returns [{}] for empty objects
+    [];
 undynamize_value({<<"M">>, Map}, Opts) ->
     [undynamize_attr(Attr, Opts) || Attr <- Map].
 
@@ -655,6 +730,9 @@ undynamize_value_typed({<<"BS">>, Values}, _) ->
     {bs, [base64:decode(Value) || Value <- Values]};
 undynamize_value_typed({<<"L">>, List}, Opts) ->
     {l, [undynamize_value_typed(Value, Opts) || [Value] <- List]};
+undynamize_value_typed({<<"M">>, [{}]}, _Opts) ->
+    %% jsx returns [{}] for empty objects
+    {m, []};
 undynamize_value_typed({<<"M">>, Map}, Opts) ->
     {m, [undynamize_attr_typed(Attr, Opts) || Attr <- Map]}.
 
@@ -690,6 +768,16 @@ undynamize_key_schema([Key1, Key2], _) ->
             {key_name(Key2), key_name(Key1)}
     end.
 
+-spec undynamize_sse_description_status(binary(), undynamize_opts()) -> sse_description_status().
+undynamize_sse_description_status(<<"ENABLING">>, _) -> enabling;
+undynamize_sse_description_status(<<"ENABLED">>, _) -> enabled;
+undynamize_sse_description_status(<<"DISABLING">>, _) -> disabling;
+undynamize_sse_description_status(<<"DISABLED">>, _) -> disabled.
+
+-spec undynamize_sse_description(jsx:json_term(), undynamize_opts()) -> sse_description().
+undynamize_sse_description(Json, Opts) ->
+    {status, undynamize_sse_description_status(proplists:get_value(<<"Status">>, Json), Opts)}.
+
 -spec undynamize_stream_view_type(binary(), undynamize_opts()) -> stream_view_type().
 undynamize_stream_view_type(<<"KEYS_ONLY">>, _) -> keys_only;
 undynamize_stream_view_type(<<"NEW_IMAGE">>, _) -> new_image;
@@ -713,12 +801,49 @@ undynamize_expression(Expression, _) ->
 undynamize_expression_attribute_names(Names, _) ->
     Names.
 
+-spec undynamize_global_table_status(binary(), undynamize_opts()) -> global_table_status().
+undynamize_global_table_status(<<"CREATING">>, _) -> creating;
+undynamize_global_table_status(<<"UPDATING">>, _) -> updating;
+undynamize_global_table_status(<<"DELETING">>, _) -> deleting;
+undynamize_global_table_status(<<"ACTIVE">>, _)   -> active.
+
+-spec undynamize_replica_description(jsx:json_term(), undynamize_opts()) -> replica_description().
+undynamize_replica_description(ReplicaDescription, _) ->
+    #ddb2_replica_description{region_name = proplists:get_value(<<"RegionName">>, ReplicaDescription)}.
+
+-spec undynamize_replica_descriptions(jsx:json_term(), undynamize_opts()) -> [replica_description()].
+undynamize_replica_descriptions(ReplicaDescriptions, Opts) ->
+    [undynamize_replica_description(ReplicaDescription, Opts)
+     || ReplicaDescription <- ReplicaDescriptions].
+
+-spec undynamize_replica(jsx:json_term(), undynamize_opts()) -> replica().
+undynamize_replica(Replica, _) ->
+    #ddb2_replica{region_name = proplists:get_value(<<"RegionName">>, Replica)}.
+
+-spec undynamize_replicas([jsx:json_term()], undynamize_opts()) -> [replica()].
+undynamize_replicas(Replicas, Opts) ->
+    [undynamize_replica(Replica, Opts) || Replica <- Replicas].
+
 -spec undynamize_table_status(binary(), undynamize_opts()) -> table_status().
 undynamize_table_status(<<"CREATING">>, _) -> creating;
 undynamize_table_status(<<"UPDATING">>, _) -> updating;
 undynamize_table_status(<<"DELETING">>, _) -> deleting;
 undynamize_table_status(<<"ACTIVE">>, _)   -> active.
-    
+
+-spec undynamize_continuous_backups_status(binary(), undynamize_opts()) -> continuous_backups_status().
+undynamize_continuous_backups_status(<<"ENABLED">>, _) -> enabled;
+undynamize_continuous_backups_status(<<"DISABLED">>, _) -> disabled.
+
+-spec undynamize_point_in_time_recovery_status(binary(), undynamize_opts()) -> point_in_time_recovery_status().
+undynamize_point_in_time_recovery_status(<<"ENABLING">>, _) -> enabling;
+undynamize_point_in_time_recovery_status(<<"ENABLED">>, _) -> enabled;
+undynamize_point_in_time_recovery_status(<<"DISABLED">>, _) -> disabled.
+
+-spec undynamize_backup_status(binary(), undynamize_opts()) -> backup_status().
+undynamize_backup_status(<<"CREATING">>, _) -> creating;
+undynamize_backup_status(<<"AVAILABLE">>, _) -> available;
+undynamize_backup_status(<<"DELETED">>, _) -> deleted.
+
 -type field_table() :: [{binary(), pos_integer(), 
                          fun((jsx:json_term(), undynamize_opts()) -> term())}].
 
@@ -838,6 +963,65 @@ conditional_op_opt() ->
 expected_opt() ->
     {expected, <<"Expected">>, fun dynamize_expected/1}.
 
+-spec filter_expression_opt() -> opt_table_entry().
+
+filter_expression_opt() ->
+    {filter_expression, <<"FilterExpression">>, fun dynamize_expression/1}.
+
+% This matches the Java API, which asks the user to write their own expressions.
+
+-spec dynamize_expression(expression()) -> binary().
+dynamize_expression(Expression) when is_binary(Expression) ->
+    Expression;
+dynamize_expression(Expression) when is_list(Expression) ->
+    list_to_binary(Expression);
+
+% Or, some convenience functions for assembling expressions using lists of tuples.
+
+dynamize_expression({A, also, B}) ->
+    AA = dynamize_expression(A),
+    BB = dynamize_expression(B),
+    <<"(", AA/binary, ") AND (", BB/binary, ")">>;
+dynamize_expression({{A, B}, eq}) ->
+    <<A/binary, " = ", B/binary>>;
+dynamize_expression({{A, B}, ne}) ->
+    <<A/binary, " <> ", B/binary>>;
+dynamize_expression({{A, B}, lt}) ->
+    <<A/binary, " < ", B/binary>>;
+dynamize_expression({{A, B}, le}) ->
+    <<A/binary, " <= ", B/binary>>;
+dynamize_expression({{A, B}, gt}) ->
+    <<A/binary, " > ", B/binary>>;
+dynamize_expression({{A, B}, ge}) ->
+    <<A/binary, " >= ", B/binary>>;
+dynamize_expression({{A, {Low, High}}, between}) ->
+    <<A/binary, " BETWEEN ", Low/binary, " AND ", High/binary>>;
+dynamize_expression({{A, B}, in}) when is_binary(B) ->
+    <<A/binary, " IN ", B/binary>>;
+dynamize_expression({{A, B}, in}) when is_list(B) ->
+    % Convert everything to binaries.
+
+    InList = [to_binary(X) || X <- B],
+
+    % Join the list of binaries with commas.
+
+    Join = fun(Elem, Acc) when Acc =:= <<"">> ->
+                Elem;
+              (Elem, Acc) ->
+                <<Acc/binary, ",", Elem/binary>> end,
+
+    In = lists:foldl(Join, <<>>, InList),
+
+    <<A/binary, " IN (", In/binary, ")">>;
+dynamize_expression({attribute_exists, Path}) ->
+    <<"attribute_exists(", Path/binary, ")">>;
+dynamize_expression({attribute_not_exists, Path}) ->
+    <<"attribute_not_exists(", Path/binary, ")">>;
+dynamize_expression({begins_with, Path, Operand}) ->
+    <<"begins_with(", Path/binary, ",", Operand/binary, ")">>;
+dynamize_expression({contains, Path, Operand}) ->
+    <<"contains(", Path/binary, ",", Operand/binary, ")">>.
+
 -type return_consumed_capacity_opt() :: {return_consumed_capacity, return_consumed_capacity()}.
 
 -spec return_consumed_capacity_opt() -> opt_table_entry().
@@ -863,6 +1047,8 @@ return_item_collection_metrics_opt() ->
             {error, term()}.
 out({error, Reason}, _, _) ->
     {error, Reason};
+out(ok, _, _) ->
+    {error, unexpected_empty_response};
 out({ok, Json}, Undynamize, Opts) ->
     case proplists:get_value(out, Opts, simple) of
         json ->
@@ -899,6 +1085,20 @@ out(Result, Undynamize, Opts, Index, Default) ->
 %%%------------------------------------------------------------------------------
 %%% Shared Records
 %%%------------------------------------------------------------------------------
+
+-spec undynamize_billing_mode(binary(), undynamize_opts()) -> billing_mode().
+undynamize_billing_mode(<<"PROVISIONED">>, _) -> provisioned;
+undynamize_billing_mode(<<"PAY_PER_REQUEST">>, _) -> pay_per_request.
+
+-spec billing_mode_summary_record() -> record_desc().
+billing_mode_summary_record() ->
+    {#ddb2_billing_mode_summary{},
+     [{<<"BillingMode">>, #ddb2_billing_mode_summary.billing_mode, fun undynamize_billing_mode/2},
+      {<<"LastUpdateToPayPerRequestDateTime">>,
+       #ddb2_billing_mode_summary.last_update_to_pay_per_request_date_time, fun id/2}]}.
+
+undynamize_billing_mode_summary(V, Opts) ->
+    undynamize_record(billing_mode_summary_record(), V, Opts).
 
 undynamize_consumed_capacity_units(V, _Opts) ->
     {_, CapacityUnits} = lists:keyfind(<<"CapacityUnits">>, 1, V),
@@ -997,11 +1197,37 @@ provisioned_throughput_description_record() ->
       {<<"ReadCapacityUnits">>, #ddb2_provisioned_throughput_description.read_capacity_units, fun id/2},
       {<<"WriteCapacityUnits">>, #ddb2_provisioned_throughput_description.write_capacity_units, fun id/2}
      ]}.
+-spec global_table_description_record() -> record_desc().
+global_table_description_record() ->
+    {#ddb2_global_table_description{},
+     [{<<"CreationDateTime">>, #ddb2_global_table_description.creation_date_time, fun id/2},
+      {<<"GlobalTableArn">>, #ddb2_global_table_description.global_table_arn, fun id/2},
+      {<<"GlobalTableName">>, #ddb2_global_table_description.global_table_name, fun id/2},
+      {<<"GlobalTableStatus">>, #ddb2_global_table_description.global_table_status, fun undynamize_global_table_status/2},
+      {<<"ReplicationGroup">>,  #ddb2_global_table_description.replication_group, fun undynamize_replica_descriptions/2}
+    ]}.
+
+-spec global_table_record() -> record_desc().
+global_table_record() ->
+    {#ddb2_global_table{},
+     [{<<"GlobalTableName">>, #ddb2_global_table.global_table_name, fun id/2},
+      {<<"ReplicationGroup">>,  #ddb2_global_table.replication_group, fun undynamize_replicas/2}
+    ]}.
+
+-spec restore_summary_record() -> record_desc().
+restore_summary_record() ->
+  {#ddb2_restore_summary{},
+    [{<<"RestoreDateTime">>, #ddb2_restore_summary.restore_date_time, fun id/2},
+      {<<"RestoreInProgress">>,  #ddb2_restore_summary.restore_in_progress, fun id/2},
+      {<<"SourceBackupArn">>,  #ddb2_restore_summary.source_backup_arn, fun id/2},
+      {<<"SourceTableArn">>,  #ddb2_restore_summary.source_table_arn, fun id/2}
+    ]}.
 
 -spec table_description_record() -> record_desc().
 table_description_record() ->
     {#ddb2_table_description{},
      [{<<"AttributeDefinitions">>, #ddb2_table_description.attribute_definitions, fun undynamize_attr_defs/2},
+      {<<"BillingModeSummary">>, #ddb2_table_description.billing_mode_summary, fun undynamize_billing_mode_summary/2},
       {<<"CreationDateTime">>, #ddb2_table_description.creation_date_time, fun id/2},
       {<<"GlobalSecondaryIndexes">>, #ddb2_table_description.global_secondary_indexes,
        fun(V, Opts) -> [undynamize_record(global_secondary_index_description_record(), I, Opts) || I <- V] end},
@@ -1013,6 +1239,9 @@ table_description_record() ->
        fun(V, Opts) -> [undynamize_record(local_secondary_index_description_record(), I, Opts) || I <- V] end},
       {<<"ProvisionedThroughput">>, #ddb2_table_description.provisioned_throughput,
        fun(V, Opts) -> undynamize_record(provisioned_throughput_description_record(), V, Opts) end},
+      {<<"RestoreSummary">>, #ddb2_table_description.restore_summary,
+       fun(V, Opts) -> undynamize_record(restore_summary_record(), V, Opts) end},
+      {<<"SSEDescription">>, #ddb2_table_description.sse_description, fun undynamize_sse_description/2},
       {<<"StreamSpecification">>, #ddb2_table_description.stream_specification, fun undynamize_stream_specification/2},
       {<<"TableArn">>, #ddb2_table_description.table_arn, fun id/2},
       {<<"TableName">>, #ddb2_table_description.table_name, fun id/2},
@@ -1112,7 +1341,7 @@ batch_get_item(RequestItems, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_BatchGetItems.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchGetItem.html]
 %%
 %% ===Example===
 %%
@@ -1239,7 +1468,7 @@ batch_write_item(RequestItems, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_BatchWriteItem.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchWriteItem.html]
 %%
 %% ===Example===
 %%
@@ -1285,12 +1514,141 @@ batch_write_item(RequestItems, Opts, Config) ->
     end.
 
 %%%------------------------------------------------------------------------------
+%%% CreateBackup
+%%%------------------------------------------------------------------------------
+
+-spec undynamize_backup_details() -> record_desc().
+undynamize_backup_details() ->
+    {#ddb2_backup_details{},
+     [{<<"BackupArn">>, #ddb2_backup_details.backup_arn, fun id/2},
+      {<<"BackupCreationDateTime">>, #ddb2_backup_details.backup_creation_date_time, fun id/2},
+      {<<"BackupName">>, #ddb2_backup_details.backup_name, fun id/2},
+      {<<"BackupSizeBytes">>, #ddb2_backup_details.backup_size_Bytes, fun id/2},
+      {<<"BackupStatus">>, #ddb2_backup_details.backup_status, fun undynamize_backup_status/2}
+     ]}.
+
+-spec undynamize_create_backup(jsx:json_term(), undynamize_opts())  -> record_desc().
+undynamize_create_backup(BackupInfo, Opts) ->
+    undynamize_record(undynamize_backup_details(), BackupInfo, Opts).
+
+-spec create_backup_record() -> record_desc().
+create_backup_record() ->
+    {#ddb2_create_backup{},
+      [{<<"BackupDetails">>, #ddb2_create_backup.backup_details, fun undynamize_create_backup/2}]}.
+
+-type create_backup_return() :: ddb_return(#ddb2_create_backup{}, #ddb2_backup_details{}).
+
+-spec create_backup(binary(), table_name()) -> create_backup_return().
+create_backup(BackupName, TableName)
+    when is_binary(BackupName), is_binary(TableName) ->
+    create_backup(BackupName, TableName, [], default_config()).
+
+-spec create_backup(binary(), table_name(), ddb_opts()) -> create_backup_return().
+create_backup(BackupName, TableName, Opts)
+    when is_binary(BackupName), is_binary(TableName) ->
+    create_backup(BackupName, TableName, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_CreateBackup.html]
+%%
+%% ===Example===
+%%
+%% Creates a backup for an existing table.
+%%
+%% `
+%% {ok, BackupDetails} =
+%%     erlcloud_ddb2:create_backup(<<"Forum_Backup">>, <<"Forum">>),
+%% '
+%% @end
+%%-------------------------------------------------------------------------------
+-spec create_backup(binary(), table_name(), ddb_opts(), aws_config()) -> create_backup_return().
+create_backup(BackupName, TableName, Opts, Config)
+    when is_binary(BackupName), is_binary(TableName) ->
+    {_AwsOpts, DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+     Config,
+     "DynamoDB_20120810.CreateBackup",
+     [{<<"TableName">>, TableName},
+      {<<"BackupName">>, BackupName}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(create_backup_record(), Json, UOpts) end,
+        DdbOpts, #ddb2_create_backup.backup_details).
+
+%%%------------------------------------------------------------------------------
+%%% CreateGlobalTable
+%%%------------------------------------------------------------------------------
+
+-spec dynamize_replica(replica()) -> jsx:json_term().
+dynamize_replica(#ddb2_replica{region_name = Region}) ->
+    [{<<"RegionName">>, Region}];
+dynamize_replica({region_name, Region}) ->
+    [{<<"RegionName">>, Region}].
+
+-spec create_global_table_record() -> record_desc().
+create_global_table_record() ->
+    {#ddb2_create_global_table{},
+     [{<<"GlobalTableDescription">>, #ddb2_create_global_table.global_table_description, 
+       fun(V, Opts) -> undynamize_record(global_table_description_record(), V, Opts) end}
+     ]}. 
+
+-type create_global_table_return() :: ddb_return(#ddb2_create_global_table{}, #ddb2_global_table_description{}).
+
+-spec create_global_table(table_name(), maybe_list(replica()))
+                         -> create_global_table_return().
+create_global_table(GlobalTableName, ReplicationGroup) ->
+    create_global_table(GlobalTableName, ReplicationGroup, [], default_config()).
+
+-spec create_global_table(table_name(), maybe_list(replica()), 
+                          ddb_opts() | aws_config())
+                         -> create_global_table_return().
+create_global_table(GlobalTableName, ReplicationGroup, Opts) when is_list(Opts) ->
+    create_global_table(GlobalTableName, ReplicationGroup, Opts, default_config());
+create_global_table(GlobalTableName, ReplicationGroup, Config) when is_record(Config, aws_config) ->
+    create_global_table(GlobalTableName, ReplicationGroup, [], Config).
+
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_CreateGlobalTable.html]
+%%
+%% ===Example===
+%%
+%% Create a global table called "Thread" in us-east-1 and eu-west-1.
+%%
+%% `
+%% {ok, Record} =
+%%     erlcloud_ddb2:create_global_table(<<"Thread">>,
+%%                                       [{region_name, <<"us-east-1">>},
+%%                                        {region_name, <<"eu-west-1">>}]),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+
+-spec create_global_table(table_name(), [replica()], ddb_opts(),
+                          aws_config())
+                         -> create_global_table_return().
+create_global_table(GlobalTableName, ReplicationGroup, Opts, Config) ->
+    {[], DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+               Config,
+               "DynamoDB_20120810.CreateGlobalTable",
+               [{<<"GlobalTableName">>, GlobalTableName},
+                {<<"ReplicationGroup">>, dynamize_maybe_list(fun dynamize_replica/1, ReplicationGroup)}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(create_global_table_record(), Json, UOpts) end, 
+        DdbOpts, #ddb2_create_global_table.global_table_description).
+
+%%%------------------------------------------------------------------------------
 %%% CreateTable
 %%%------------------------------------------------------------------------------
 
 -type local_secondary_index_def() :: {index_name(), range_key_name(), projection()}.
 -type local_secondary_indexes() :: maybe_list(local_secondary_index_def()).
 -type global_secondary_indexes() :: maybe_list(global_secondary_index_def()).
+
+-spec dynamize_billing_mode(billing_mode()) -> binary().
+dynamize_billing_mode(provisioned) -> <<"PROVISIONED">>;
+dynamize_billing_mode(pay_per_request) -> <<"PAY_PER_REQUEST">>.
 
 -spec dynamize_local_secondary_index(hash_key_name(), local_secondary_index_def()) -> jsx:json_term().
 dynamize_local_secondary_index(HashKey, {IndexName, RangeKey, Projection}) ->
@@ -1306,17 +1664,26 @@ dynamize_local_secondary_indexes({HashKey, _RangeKey}, Value) ->
 dynamize_global_secondary_indexes(Value) ->
     dynamize_maybe_list(fun dynamize_global_secondary_index/1, Value).
 
--type create_table_opt() :: {local_secondary_indexes, local_secondary_indexes()} |
+-spec dynamize_sse_specification(sse_specification()) -> jsx:json_term().
+dynamize_sse_specification({enabled, Enabled}) when is_boolean(Enabled) ->
+    [{<<"Enabled">>, Enabled}].
+
+-type create_table_opt() :: {billing_mode, billing_mode()} |
+                            {local_secondary_indexes, local_secondary_indexes()} |
                             {global_secondary_indexes, global_secondary_indexes()} |
+                            {sse_specification, sse_specification()} |
                             {stream_specification, stream_specification()}.
 -type create_table_opts() :: [create_table_opt()].
 
 -spec create_table_opts(key_schema()) -> opt_table().
 create_table_opts(KeySchema) ->
-    [{local_secondary_indexes, <<"LocalSecondaryIndexes">>, 
+    [{billing_mode, <<"BillingMode">>, fun dynamize_billing_mode/1},
+     {local_secondary_indexes, <<"LocalSecondaryIndexes">>,
       fun(V) -> dynamize_local_secondary_indexes(KeySchema, V) end},
      {global_secondary_indexes, <<"GlobalSecondaryIndexes">>,
       fun dynamize_global_secondary_indexes/1},
+     {provisioned_throughput, <<"ProvisionedThroughput">>, fun dynamize_provisioned_throughput/1},
+     {sse_specification, <<"SSESpecification">>, fun dynamize_sse_specification/1},
      {stream_specification, <<"StreamSpecification">>, fun dynamize_stream_specification/1}].
 
 -spec create_table_record() -> record_desc().
@@ -1328,29 +1695,23 @@ create_table_record() ->
 
 -type create_table_return() :: ddb_return(#ddb2_create_table{}, #ddb2_table_description{}).
 
--spec create_table(table_name(), attr_defs(), key_schema(), read_units(), write_units())
+-spec create_table(table_name(), attr_defs(), key_schema(), create_table_opts())
                   -> create_table_return().
-create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits) ->
-    create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, [], default_config()).
-
--spec create_table(table_name(), attr_defs(), key_schema(), read_units(), write_units(),
-                   create_table_opts())
-                  -> create_table_return().
-create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, Opts) ->
-    create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, Opts, default_config()).
+create_table(Table, AttrDefs, KeySchema, Opts) ->
+    create_table(Table, AttrDefs, KeySchema, Opts, default_config()).
 
 %%------------------------------------------------------------------------------
-%% @doc 
+%% @doc
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_CreateTable.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_CreateTable.html]
 %%
 %% ===Example===
 %%
 %% Create a table with hash key "ForumName" and range key "Subject"
 %% with a local secondary index on "LastPostDateTime"
 %% and a global secondary index on "Subject" as hash key and "LastPostDateTime"
-%% as range key, read and write capacity 10, projecting all fields 
-%% 
+%% as range key, read and write capacity 10, projecting all fields
+%%
 %% `
 %% {ok, Description} =
 %%     erlcloud_ddb2:create_table(
@@ -1359,32 +1720,161 @@ create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, Opts) ->
 %%        {<<"Subject">>, s},
 %%        {<<"LastPostDateTime">>, s}],
 %%       {<<"ForumName">>, <<"Subject">>},
-%%       5, 
-%%       5,
-%%       [{local_secondary_indexes,
+%%       [{provisioned_throughput, {5, 5}},
+%%        {local_secondary_indexes,
 %%         [{<<"LastPostIndex">>, <<"LastPostDateTime">>, keys_only}]},
 %%        {global_secondary_indexes, [
 %%          {<<"SubjectTimeIndex">>, {<<"Subject">>, <<"LastPostDateTime">>}, all, 10, 10}
-%%        ]}
+%%         ]}
 %%       ]),
 %% '
 %% @end
 %%------------------------------------------------------------------------------
--spec create_table(table_name(), attr_defs(), key_schema(), read_units(), write_units(),
-                   create_table_opts(), aws_config()) 
+-spec create_table(table_name(), attr_defs(), key_schema(), read_units(), write_units())
+                  -> create_table_return();
+                  (table_name(), attr_defs(), key_schema(), create_table_opts(), aws_config())
                   -> create_table_return().
-create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, Opts, Config) ->
+create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits)
+    when is_integer(ReadUnits), is_integer(WriteUnits) ->
+    create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, [], default_config());
+create_table(Table, AttrDefs, KeySchema, Opts, Config) ->
     {AwsOpts, DdbOpts} = opts(create_table_opts(KeySchema), Opts),
     Return = erlcloud_ddb_impl:request(
-               Config,
-               "DynamoDB_20120810.CreateTable",
-               [{<<"TableName">>, Table},
-                {<<"AttributeDefinitions">>, dynamize_attr_defs(AttrDefs)}, 
-                {<<"KeySchema">>, dynamize_key_schema(KeySchema)},
-                {<<"ProvisionedThroughput">>, dynamize_provisioned_throughput({ReadUnits, WriteUnits})}]
-               ++ AwsOpts),
-    out(Return, fun(Json, UOpts) -> undynamize_record(create_table_record(), Json, UOpts) end, 
+        Config,
+        "DynamoDB_20120810.CreateTable",
+        [{<<"TableName">>, Table},
+         {<<"AttributeDefinitions">>, dynamize_attr_defs(AttrDefs)},
+         {<<"KeySchema">>, dynamize_key_schema(KeySchema)}]
+        ++ AwsOpts),
+    out(Return, fun(Json, UOpts) -> undynamize_record(create_table_record(), Json, UOpts) end,
         DdbOpts, #ddb2_create_table.table_description).
+
+-spec create_table(table_name(), attr_defs(), key_schema(), read_units(), write_units(),
+                   create_table_opts())
+                  -> create_table_return().
+create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, Opts) ->
+    create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, Opts, default_config()).
+
+-spec create_table(table_name(), attr_defs(), key_schema(), read_units(), write_units(),
+                   create_table_opts(), aws_config())
+                  -> create_table_return().
+create_table(Table, AttrDefs, KeySchema, ReadUnits, WriteUnits, Opts0, Config) ->
+    Opts = [{provisioned_throughput, {ReadUnits, WriteUnits}} | Opts0],
+    create_table(Table, AttrDefs, KeySchema, Opts, Config).
+
+%%%------------------------------------------------------------------------------
+%%% DeleteBackup
+%%%------------------------------------------------------------------------------
+
+-spec provisioned_throughput_description() -> record_desc().
+provisioned_throughput_description() ->
+    {#ddb2_provisioned_throughput{},
+     [
+      {<<"ReadCapacityUnits">>, #ddb2_provisioned_throughput.read_capacity_units, fun id/2},
+      {<<"WriteCapacityUnits">>, #ddb2_provisioned_throughput.write_capacity_units, fun id/2}
+     ]}.
+
+-spec undynamize_source_table_details() -> record_desc().
+undynamize_source_table_details() ->
+    {#ddb2_source_table_details{},
+     [{<<"ItemCount">>, #ddb2_source_table_details.item_count, fun id/2},
+      {<<"KeySchema">>, #ddb2_source_table_details.key_schema, fun undynamize_key_schema/2},
+      {<<"ProvisionedThroughput">>, #ddb2_source_table_details.provisioned_throughput,
+       fun(V, Opts) -> undynamize_record(provisioned_throughput_description(), V, Opts) end},
+      {<<"TableId">>, #ddb2_source_table_details.table_id, fun id/2},
+      {<<"TableCreationDateTime">>, #ddb2_source_table_details.table_creation_date_time, fun id/2},
+      {<<"TableArn">>, #ddb2_source_table_details.table_arn, fun id/2},
+      {<<"TableName">>, #ddb2_source_table_details.table_name, fun id/2},
+      {<<"TableSizeBytes">>, #ddb2_source_table_details.table_size_bytes, fun id/2}
+     ]}.
+
+-spec undynamize_global_secondary_index_info() -> record_desc().
+undynamize_global_secondary_index_info() ->
+ {#ddb2_global_secondary_index_info{},
+  [{<<"IndexName">>, #ddb2_global_secondary_index_info.index_name, fun id/2},
+   {<<"KeySchema">>, #ddb2_global_secondary_index_info.key_schema, fun undynamize_key_schema/2},
+   {<<"Projection">>, #ddb2_global_secondary_index_info.projection, fun undynamize_projection/2},
+   {<<"ProvisionedThroughput">>, #ddb2_global_secondary_index_info.provisioned_throughput,
+    fun(V, Opts) -> undynamize_record(provisioned_throughput_description(), V, Opts) end}
+  ]}.
+
+-spec undynamize_local_secondary_index_info() -> record_desc().
+undynamize_local_secondary_index_info() ->
+    {#ddb2_local_secondary_index_info{},
+     [{<<"IndexName">>, #ddb2_local_secondary_index_info.index_name, fun id/2},
+      {<<"KeySchema">>, #ddb2_local_secondary_index_info.key_schema, fun undynamize_key_schema/2},
+      {<<"Projection">>, #ddb2_local_secondary_index_info.projection, fun undynamize_projection/2}
+     ]}.
+
+-spec undynamize_source_table_feature_details() -> record_desc().
+undynamize_source_table_feature_details() ->
+    {#ddb2_source_table_feature_details{},
+     [{<<"GlobalSecondaryIndexes">>, #ddb2_source_table_feature_details.global_secondary_indexes,
+      fun(V, Opts) -> [undynamize_record(undynamize_global_secondary_index_info(), I, Opts) || I <- V] end},
+      {<<"LocalSecondaryIndexes">>, #ddb2_source_table_feature_details.local_secondary_indexes,
+       fun(V, Opts) -> [undynamize_record(undynamize_local_secondary_index_info(), I, Opts) || I <- V] end},
+      {<<"SSEDescription">>, #ddb2_source_table_feature_details.sse_description, fun undynamize_sse_description/2},
+      {<<"StreamDescription">>, #ddb2_source_table_feature_details.stream_description,
+       fun undynamize_stream_specification/2},
+      {<<"TimeToLiveDescription">>, #ddb2_source_table_feature_details.time_to_live_description,
+       fun(V, Opts) -> undynamize_record(time_to_live_description_record(), V, Opts) end}
+     ]}.
+
+-spec undynamize_backup_description() -> record_desc().
+undynamize_backup_description() ->
+    {#ddb2_backup_description{},
+     [{<<"BackupDetails">>, #ddb2_backup_description.backup_details,
+      fun(V, Opts) -> undynamize_record(undynamize_backup_details(), V, Opts) end},
+      {<<"SourceTableDetails">>, #ddb2_backup_description.source_table_details,
+       fun(V, Opts) -> undynamize_record(undynamize_source_table_details(), V, Opts) end},
+      {<<"SourceTableFeatureDetails">>, #ddb2_backup_description.source_table_feature_details,
+       fun(V, Opts) -> undynamize_record(undynamize_source_table_feature_details(), V, Opts) end}
+     ]}.
+
+-spec delete_backup_record() -> record_desc().
+delete_backup_record() ->
+    {#ddb2_delete_backup{},
+     [{<<"BackupDescription">>, #ddb2_delete_backup.backup_description,
+      fun(V, Opts) -> undynamize_record(undynamize_backup_description(), V, Opts) end}
+     ]}.
+
+-type delete_backup_return() :: ddb_return(#ddb2_delete_backup{}, #ddb2_backup_description{}).
+
+-spec delete_backup(binary()) -> delete_backup_return().
+delete_backup(BackupArn)
+    when is_binary(BackupArn) ->
+    delete_backup(BackupArn, [], default_config()).
+
+-spec delete_backup(binary(), ddb_opts()) -> delete_backup_return().
+delete_backup(BackupArn, Opts)
+    when is_binary(BackupArn) ->
+    delete_backup(BackupArn, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DeleteBackup.html]
+%%
+%% ===Example===
+%%
+%% Deletes an existing backup of a table.
+%%
+%% `
+%% {ok, BackupDescription} =
+%%     erlcloud_ddb2:delete_backup(<<"BackupArn">>),
+%% '
+%% @end
+%%-------------------------------------------------------------------------------
+-spec delete_backup(binary(), ddb_opts(), aws_config()) -> delete_backup_return().
+delete_backup(BackupArn, Opts, Config)
+    when is_binary(BackupArn) ->
+    {_AwsOpts, DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+     Config,
+     "DynamoDB_20120810.DeleteBackup",
+     [{<<"BackupArn">>, BackupArn}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(delete_backup_record(), Json, UOpts) end,
+        DdbOpts, #ddb2_delete_backup.backup_description).
 
 %%%------------------------------------------------------------------------------
 %%% DeleteItem
@@ -1434,7 +1924,7 @@ delete_item(Table, Key, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_DeleteItem.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DeleteItem.html]
 %%
 %% ===Example===
 %%
@@ -1450,6 +1940,21 @@ delete_item(Table, Key, Opts) ->
 %%       [{return_values, all_old},
 %%        {condition_expression, <<"attribute_not_exists(Replies)">>}]),
 %% '
+%%
+%% The ConditionExpression option can also be used in place of the legacy
+%% ConditionalOperator or Expected parameters.
+%%
+%% `
+%% {ok, Item} = 
+%%     erlcloud_ddb2:delete_item(
+%%       <<"Thread">>, 
+%%       [{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
+%%        {<<"Subject">>, {s, <<"How do I update multiple items?">>}}],
+%%       [{return_values, all_old},
+%%        {condition_expression, <<"attribute_not_exists(#replies)">>},
+%%        {expression_attribute_names, [{<<"#replies">>, <<"Replies">>}]}]),
+%% '
+%%
 %% @end
 %%------------------------------------------------------------------------------
 -spec delete_item(table_name(), key(), delete_item_opts(), aws_config()) -> delete_item_return().
@@ -1488,7 +1993,7 @@ delete_table(Table, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_DeleteTable.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DeleteTable.html]
 %%
 %% ===Example===
 %%
@@ -1509,6 +2014,222 @@ delete_table(Table, Opts, Config) ->
                [{<<"TableName">>, Table}]),
     out(Return, fun(Json, UOpts) -> undynamize_record(delete_table_record(), Json, UOpts) end, 
         DdbOpts, #ddb2_delete_table.table_description).
+
+%%%------------------------------------------------------------------------------
+%%% DescribeBackup
+%%%------------------------------------------------------------------------------
+
+-type describe_backup_return() :: ddb_return(#ddb2_describe_backup{}, #ddb2_backup_description{}).
+
+-spec describe_backup_record() -> record_desc().
+describe_backup_record() ->
+  {#ddb2_describe_backup{},
+    [{<<"BackupDescription">>, #ddb2_describe_backup.backup_description,
+      fun(V, Opts) -> undynamize_record(undynamize_backup_description(), V, Opts) end}
+    ]}.
+
+-spec describe_backup(binary()) -> describe_backup_return().
+describe_backup(BackupArn)
+    when is_binary(BackupArn) ->
+    describe_backup(BackupArn, [], default_config()).
+
+-spec describe_backup(binary(), ddb_opts()) -> describe_backup_return().
+describe_backup(BackupArn, Opts)
+    when is_binary(BackupArn) ->
+    describe_backup(BackupArn, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DescribeBackup.html]
+%%
+%% ===Example===
+%%
+%% Describes an existing backup of a table.
+%%
+%% `
+%% {ok, BackupDescription} =
+%%     erlcloud_ddb2:describe_backup(<<"BackupArn">>),
+%% '
+%% @end
+%%-------------------------------------------------------------------------------
+-spec describe_backup(binary(), ddb_opts(), aws_config()) -> describe_backup_return().
+describe_backup(BackupArn, Opts, Config)
+    when is_binary(BackupArn) ->
+    {_AwsOpts, DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+     Config,
+     "DynamoDB_20120810.DescribeBackup",
+     [{<<"BackupArn">>, BackupArn}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(describe_backup_record(), Json, UOpts) end,
+        DdbOpts, #ddb2_describe_backup.backup_description).
+
+%%%------------------------------------------------------------------------------
+%%% DescribeContinuousBackups
+%%%------------------------------------------------------------------------------
+
+-spec  ddb2_point_in_time_recovery_description() -> record_desc().
+ddb2_point_in_time_recovery_description() ->
+    {#ddb2_point_in_time_recovery_description{},
+     [{<<"EarliestRestorableDateTime">>, #ddb2_point_in_time_recovery_description.earliest_restorable_date_time, fun id/2},
+      {<<"LatestRestorableDateTime">>, #ddb2_point_in_time_recovery_description.latest_restorable_date_time, fun id/2},
+      {<<"PointInTimeRecoveryStatus">>, #ddb2_point_in_time_recovery_description.point_in_time_recovery_status, fun undynamize_point_in_time_recovery_status/2}
+     ]}.
+
+-spec ddb2_continuous_backups_description() -> record_desc().
+ddb2_continuous_backups_description() ->
+    {#ddb2_continuous_backups_description{},
+     [{<<"ContinuousBackupsStatus">>, #ddb2_continuous_backups_description.continuous_backups_status, fun undynamize_continuous_backups_status/2},
+      {<<"PointInTimeRecoveryDescription">>, #ddb2_continuous_backups_description.point_in_time_recovery_description,
+       fun(V, Opts) -> undynamize_record(ddb2_point_in_time_recovery_description(), V, Opts) end}
+     ]}.
+
+-spec continuous_backups_record() -> record_desc().
+continuous_backups_record() ->
+    {#ddb2_describe_continuous_backups{},
+     [{<<"ContinuousBackupsDescription">>, #ddb2_describe_continuous_backups.continuous_backups_description,
+      fun(V, Opts) -> undynamize_record(ddb2_continuous_backups_description(), V, Opts) end}
+     ]}.
+
+-type  describe_continuous_backup_return() :: ddb_return(#ddb2_describe_continuous_backups{}, #ddb2_continuous_backups_description{}).
+
+-spec  describe_continuous_backups(table_name()) -> describe_continuous_backup_return().
+describe_continuous_backups(TableName)
+    when is_binary(TableName) ->
+    describe_continuous_backups(TableName, [], default_config()).
+
+-spec  describe_continuous_backups(table_name(), ddb_opts()) -> describe_continuous_backup_return().
+describe_continuous_backups(TableName, Opts)
+    when is_binary(TableName) ->
+    describe_continuous_backups(TableName, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DescribeContinuousBackups.html]
+%%
+%% ===Example===
+%%
+%% Checks the status of continuous backups and point in time recovery on the specified table.
+%%
+%% `
+%% {ok, ContinuousBackupDescription} =
+%%     erlcloud_ddb2:describe_continuous_backups(<<"Forum">>),
+%% '
+%% @end
+%%-------------------------------------------------------------------------------
+-spec  describe_continuous_backups(table_name(), ddb_opts(), aws_config()) -> describe_continuous_backup_return().
+describe_continuous_backups(TableName, Opts, Config)
+    when is_binary(TableName) ->
+    {_AwsOpts, DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+     Config,
+     "DynamoDB_20120810.DescribeContinuousBackups",
+     [{<<"TableName">>, TableName}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(continuous_backups_record(), Json, UOpts) end,
+        DdbOpts, #ddb2_describe_continuous_backups.continuous_backups_description).
+
+%%%------------------------------------------------------------------------------
+%%% DescribeGlobalTable
+%%%------------------------------------------------------------------------------
+
+-spec describe_global_table_record() -> record_desc().
+describe_global_table_record() ->
+    {#ddb2_describe_global_table{},
+     [{<<"GlobalTableDescription">>, #ddb2_describe_global_table.global_table_description, 
+       fun(V, Opts) -> undynamize_record(global_table_description_record(), V, Opts) end}
+     ]}. 
+
+-type describe_global_table_return() :: ddb_return(#ddb2_describe_global_table{}, #ddb2_global_table_description{}).
+
+-spec describe_global_table(table_name()) -> describe_global_table_return().
+describe_global_table(GlobalTableName) ->
+    describe_global_table(GlobalTableName, [], default_config()).
+
+-spec describe_global_table(table_name(), ddb_opts() | aws_config())
+                           -> describe_global_table_return().
+describe_global_table(GlobalTableName, Opts) when is_list(Opts) ->
+    describe_global_table(GlobalTableName, Opts, default_config());
+describe_global_table(GlobalTableName, Config) when is_record(Config, aws_config) ->
+    describe_global_table(GlobalTableName, [], Config).
+
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DescribeGlobalTable.html]
+%%
+%% ===Example===
+%%
+%% Describe "Thread" global table.
+%%
+%% `
+%% {ok, Description} =
+%%     erlcloud_ddb2:describe_table(<<"Thread">>),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec describe_global_table(table_name(), ddb_opts(), aws_config())
+                           -> describe_global_table_return().
+describe_global_table(GlobalTableName, Opts, Config) ->
+    {[], DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+               Config,
+               "DynamoDB_20120810.DescribeGlobalTable",
+               [{<<"GlobalTableName">>, GlobalTableName}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(describe_global_table_record(), Json, UOpts) end, 
+        DdbOpts, #ddb2_describe_table.table).
+
+%%%------------------------------------------------------------------------------
+%%% DescribeLimits
+%%%------------------------------------------------------------------------------
+
+-spec describe_limits_record() -> record_desc().
+describe_limits_record() ->
+    {#ddb2_describe_limits{},
+     [{<<"AccountMaxReadCapacityUnits">>, #ddb2_describe_limits.account_max_read_capacity_units, fun id/2},
+      {<<"AccountMaxWriteCapacityUnits">>, #ddb2_describe_limits.account_max_write_capacity_units, fun id/2},
+      {<<"TableMaxReadCapacityUnits">>, #ddb2_describe_limits.table_max_read_capacity_units, fun id/2},
+      {<<"TableMaxWriteCapacityUnits">>, #ddb2_describe_limits.table_max_write_capacity_units, fun id/2}
+     ]}.
+
+-type describe_limits_return() :: ddb_return(#ddb2_describe_limits{}, #ddb2_describe_limits{}).
+
+-spec describe_limits() -> describe_limits_return().
+describe_limits() ->
+    describe_limits([], default_config()).
+
+-spec describe_limits(ddb_opts()) -> describe_limits_return().
+describe_limits(Opts) ->
+    describe_limits(Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DescribeLimits.html]
+%%
+%% ===Example===
+%%
+%% Describe the current provisioned-capacity limits for your AWS account.
+%%
+%% `
+%% {ok, Limits} =
+%%     erlcloud_ddb2:describe_limits(),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec describe_limits(ddb_opts(), aws_config()) -> describe_limits_return().
+describe_limits(Opts, Config) ->
+    {[], DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+               Config,
+               "DynamoDB_20120810.DescribeLimits",
+               []),
+    case out(Return, fun(Json, UOpts) -> undynamize_record(describe_limits_record(), Json, UOpts) end,
+             DdbOpts) of
+        {simple, Record} -> {ok, Record};
+        {ok, _} = Out -> Out;
+        {error, _} = Out -> Out
+    end.
 
 %%%------------------------------------------------------------------------------
 %%% DescribeTable
@@ -1534,7 +2255,7 @@ describe_table(Table, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_DescribeTables.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DescribeTable.html]
 %%
 %% ===Example===
 %%
@@ -1555,6 +2276,65 @@ describe_table(Table, Opts, Config) ->
                [{<<"TableName">>, Table}]),
     out(Return, fun(Json, UOpts) -> undynamize_record(describe_table_record(), Json, UOpts) end, 
         DdbOpts, #ddb2_describe_table.table).
+
+%%%------------------------------------------------------------------------------
+%%% DescribeTimeToLive
+%%%------------------------------------------------------------------------------
+-type time_to_live_status() :: enabled | disabled | enabling | disabling.
+
+-spec undynamize_time_to_live_status(binary(), undynamize_opts()) -> time_to_live_status().
+undynamize_time_to_live_status(Value, _) ->
+    case Value of
+      <<"ENABLED">> -> enabled;
+      <<"ENABLING">> -> enabling;
+      <<"DISABLED">> -> disabled;
+      <<"DISABLING">> -> disabling
+    end.
+
+-spec time_to_live_description_record() -> record_desc().
+time_to_live_description_record() ->
+    {#ddb2_time_to_live_description{},
+     [{<<"AttributeName">>, #ddb2_time_to_live_description.attribute_name, fun id/2},
+      {<<"TimeToLiveStatus">>, #ddb2_time_to_live_description.time_to_live_status, fun undynamize_time_to_live_status/2}
+    ]}.
+
+-spec describe_time_to_live_record() -> record_desc().
+describe_time_to_live_record() ->
+    {#ddb2_describe_time_to_live{},
+     [{<<"TimeToLiveDescription">>, #ddb2_describe_time_to_live.time_to_live_description,
+       fun(V, Opts) -> undynamize_record(time_to_live_description_record(), V, Opts) end}
+    ]}.
+
+-type describe_time_to_live_return() :: ddb_return(#ddb2_describe_time_to_live{}, #ddb2_time_to_live_description{}).
+
+-spec describe_time_to_live(table_name()) -> describe_time_to_live_return().
+describe_time_to_live(Table) ->
+    describe_time_to_live(Table, []).
+
+-spec describe_time_to_live(table_name(), ddb_opts()) -> describe_time_to_live_return().
+describe_time_to_live(Table, DbOpts) ->
+    describe_time_to_live(Table, DbOpts, default_config()).
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DescribeTimeToLive.html]
+%%
+%% ===Example===
+%%
+%% Describe TimeToLive for table "SessionData".
+%% `
+%% {ok, Description} = erlcloud_ddb2:describe_time_to_live(<<"SessionData">>),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec describe_time_to_live(table_name(), ddb_opts(), aws_config()) -> describe_time_to_live_return().
+describe_time_to_live(Table, DbOpts, Config) ->
+    Return = erlcloud_ddb_impl:request(
+               Config,
+               "DynamoDB_20120810.DescribeTimeToLive",
+               [{<<"TableName">>, Table}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(describe_time_to_live_record(), Json, UOpts) end, 
+        DbOpts, #ddb2_describe_time_to_live.time_to_live_description).
 
 %%%------------------------------------------------------------------------------
 %%% GetItem
@@ -1596,7 +2376,7 @@ get_item(Table, Key, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_GetItem.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_GetItem.html]
 %%
 %% ===Example===
 %%
@@ -1625,6 +2405,158 @@ get_item(Table, Key, Opts, Config) ->
                ++ AwsOpts),
     out(Return, fun(Json, UOpts) -> undynamize_record(get_item_record(), Json, UOpts) end, DdbOpts, 
         #ddb2_get_item.item, {ok, []}).
+
+%%%------------------------------------------------------------------------------
+%%% ListBackups
+%%%------------------------------------------------------------------------------
+
+-type list_backups_opt() :: {limit, pos_integer()} |
+                            {exclusive_start_backup_arn, binary()} |
+                            {table_name, table_name()} |
+                            {time_range_lower_bound,  number()} |
+                            {time_range_upper_bound,  number()}.
+
+-spec list_backups_opts() -> opt_table().
+list_backups_opts() ->
+    [{limit, <<"Limit">>, fun id/1},
+     {exclusive_start_backup_arn, <<"ExclusiveStartBackupArn">>, fun id/1},
+     {table_name, <<"TableName">>, fun id/1},
+     {time_range_lower_bound, <<"TimeRangeLowerBound">>, fun id/1},
+     {time_range_upper_bound, <<"TimeRangeUpperBound">>, fun id/1}
+    ].
+
+-spec backup_record() -> record_desc().
+backup_record() ->
+    {#ddb2_backup_summary{},
+     [{<<"BackupArn">>, #ddb2_backup_summary.backup_arn, fun id/2},
+      {<<"BackupCreationDateTime">>, #ddb2_backup_summary.backup_creation_date_time, fun id/2},
+      {<<"BackupName">>, #ddb2_backup_summary.backup_name, fun id/2},
+      {<<"BackupSizeBytes">>, #ddb2_backup_summary.backup_size_bytes, fun id/2},
+      {<<"BackupStatus">>, #ddb2_backup_summary.backup_status, fun undynamize_backup_status/2},
+      {<<"TableArn">>, #ddb2_backup_summary.table_arn, fun id/2},
+      {<<"TableId">>, #ddb2_backup_summary.table_id, fun id/2},
+      {<<"TableName">>, #ddb2_backup_summary.table_name, fun id/2}
+     ]}.
+
+-spec undynamize_list_backups(jsx:json_term(), undynamize_opts()) -> [#ddb2_list_backups{}].
+undynamize_list_backups(BackupSummaries, Opts) ->
+    [undynamize_record(backup_record(), T, Opts) || T <- BackupSummaries].
+
+-spec list_backups_record() -> record_desc().
+list_backups_record() ->
+    {#ddb2_list_backups{},
+     [{<<"BackupSummaries">>, #ddb2_list_backups.backup_summaries, fun undynamize_list_backups/2},
+      {<<"LastEvaluatedBackupArn">>, #ddb2_list_backups.last_evaluated_backup_arn, fun id/2}
+     ]}.
+
+-type list_backups_return() :: ddb_return(#ddb2_list_backups{}, #ddb2_backup_summary{}).
+
+-spec list_backups() -> list_backups_return().
+list_backups() ->
+    list_backups([], default_config()).
+
+-spec list_backups([list_backups_opt()]) -> list_backups_return().
+list_backups(Opts) ->
+    list_backups(Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_ListBackups.html]
+%%
+%% ===Example===
+%%
+%% Get the table backups.
+%% `
+%% {ok, Tables} =
+%%     erlcloud_ddb2:list_backups(),
+%% '
+%% Get the last 4 table backups for "Forum" table between April 5, 2018 and April 6, 2018.
+%% `
+%% {ok, Tables} =
+%%     erlcloud_ddb2:list_backups(
+%%       [{limit, 4},
+%%        {table_name, <<"Forum">>},
+%%        {time_range_lower_bound, 1522926603.688},
+%%        {time_range_upper_bound, 1523022454.098}]),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec list_backups([list_backups_opt()], aws_config()) -> list_backups_return().
+list_backups(Opts, Config) ->
+    {AwsOpts, DdbOpts} = opts(list_backups_opts(), Opts),
+    Return = erlcloud_ddb_impl:request(
+     Config,
+     "DynamoDB_20120810.ListBackups",
+     AwsOpts),
+    out(Return, fun(Json, UOpts) -> undynamize_record(list_backups_record(), Json, UOpts) end,
+        DdbOpts, #ddb2_list_backups.backup_summaries).
+
+%%%------------------------------------------------------------------------------
+%%% ListGlobalTables
+%%%------------------------------------------------------------------------------
+
+-type list_global_tables_opt() :: {limit, pos_integer()} | 
+                                  {exclusive_start_global_table_name, table_name() | undefined} |
+                                  out_opt().
+-type list_global_tables_opts() :: [list_global_tables_opt()].
+
+-spec list_global_tables_opts() -> opt_table().
+list_global_tables_opts() ->
+    [{limit, <<"Limit">>, fun id/1},
+     {exclusive_start_global_table_name, <<"ExclusiveStartGlobalTableName">>, fun id/1}].
+
+-spec undynamize_global_tables(jsx:json_term(), undynamize_opts()) -> [#ddb2_global_table{}].
+undynamize_global_tables(Tables, Opts) ->
+    [undynamize_record(global_table_record(), T, Opts) || T <- Tables].
+
+-spec list_global_tables_record() -> record_desc().
+list_global_tables_record() ->
+    {#ddb2_list_global_tables{},
+     [{<<"GlobalTables">>, #ddb2_list_global_tables.global_tables, fun undynamize_global_tables/2},
+      {<<"LastEvaluatedGlobalTableName">>, #ddb2_list_global_tables.last_evaluated_global_table_name, fun id/2}
+     ]}.
+
+-type list_global_tables_return() :: ddb_return(#ddb2_list_global_tables{}, [#ddb2_global_table{}]).
+
+-spec list_global_tables() -> list_global_tables_return().
+list_global_tables() ->
+    list_global_tables([], default_config()).
+
+-spec list_global_tables(list_global_tables_opts() | aws_config())
+                        -> list_global_tables_return().
+list_global_tables(Opts) when is_list(Opts) ->
+    list_global_tables(Opts, default_config());
+list_global_tables(Config) when is_record(Config, aws_config) ->
+    list_global_tables([], Config).
+
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_ListGlobalTables.html]
+%%
+%% ===Example===
+%%
+%% Get the next 3 global table names after "Thread".
+%%
+%% `
+%% {ok, Tables} = 
+%%     erlcloud_ddb2:list_global_tables(
+%%       [{limit, 3}, 
+%%        {exclusive_start_global_table_name, <<"Thread">>}]),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec list_global_tables(list_global_tables_opts(), aws_config())
+                        -> list_global_tables_return().
+list_global_tables(Opts, Config) ->
+    {AwsOpts, DdbOpts} = opts(list_global_tables_opts(), Opts),
+    Return = erlcloud_ddb_impl:request(
+               Config,
+               "DynamoDB_20120810.ListGlobalTables",
+               AwsOpts),
+    out(Return, fun(Json, UOpts) -> undynamize_record(list_global_tables_record(), Json, UOpts) end, 
+        DdbOpts, #ddb2_list_global_tables.global_tables, {ok, []}).
 
 %%%------------------------------------------------------------------------------
 %%% ListTables
@@ -1660,7 +2592,7 @@ list_tables(Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_ListTables.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_ListTables.html]
 %%
 %% ===Example===
 %%
@@ -1683,6 +2615,72 @@ list_tables(Opts, Config) ->
                AwsOpts),
     out(Return, fun(Json, UOpts) -> undynamize_record(list_tables_record(), Json, UOpts) end, 
         DdbOpts, #ddb2_list_tables.table_names, {ok, []}).
+
+%%%------------------------------------------------------------------------------
+%%% ListTagsOfResource
+%%%------------------------------------------------------------------------------
+
+-type list_tags_of_resource_opt() :: {next_token, binary()} | out_opt().
+-type list_tags_of_resource_opts() :: [list_tags_of_resource_opt()].
+
+-spec list_tags_of_resource_opts() -> opt_table().
+list_tags_of_resource_opts() ->
+    [{next_token, <<"NextToken">>, fun id/1}].
+
+-spec undynamize_tag(jsx:json_term(), undynamize_opts()) -> tag().
+undynamize_tag(Tag, _) ->
+    {proplists:get_value(<<"Key">>, Tag),
+     proplists:get_value(<<"Value">>, Tag)}.
+
+-spec undynamize_tags([jsx:json_term()], undynamize_opts()) -> tags().
+undynamize_tags(Tags, Opts) ->
+    [undynamize_tag(Tag, Opts) || Tag <- Tags].
+
+-spec list_tags_of_resource_record() -> record_desc().
+list_tags_of_resource_record() ->
+    {#ddb2_list_tags_of_resource{},
+     [{<<"NextToken">>, #ddb2_list_tags_of_resource.next_token, fun id/2},
+      {<<"Tags">>, #ddb2_list_tags_of_resource.tags, fun undynamize_tags/2}
+     ]}.
+
+-type list_tags_of_resource_return() :: ddb_return(#ddb2_list_tags_of_resource{}, tags()).
+
+-spec list_tags_of_resource(binary()) -> list_tags_of_resource_return().
+list_tags_of_resource(ResourceArn) ->
+    list_tags_of_resource(ResourceArn, [], default_config()).
+
+-spec list_tags_of_resource(binary(), list_tags_of_resource_opts())
+                           -> list_tags_of_resource_return().
+list_tags_of_resource(ResourceArn, Opts) ->
+    list_tags_of_resource(ResourceArn, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_ListTagsOfResource.html]
+%%
+%% ===Example===
+%%
+%% List the tags for "Forum".
+%%
+%% `
+%% {ok, Tags} = 
+%%     erlcloud_ddb2:list_tags_of_resource(
+%%       <<"arn:aws:dynamodb:us-west-2:111122223333:table/Forum">>,
+%%       [{next_token, <<"TestToken">>}]),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec list_tags_of_resource(binary(), list_tags_of_resource_opts(), aws_config())
+                           -> list_tags_of_resource_return().
+list_tags_of_resource(ResourceArn, Opts, Config) ->
+    {AwsOpts, DdbOpts} = opts(list_tags_of_resource_opts(), Opts),
+    Return = erlcloud_ddb_impl:request(
+               Config,
+               "DynamoDB_20120810.ListTagsOfResource",
+               [{<<"ResourceArn">>, ResourceArn} | AwsOpts]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(list_tags_of_resource_record(), Json, UOpts) end, 
+        DdbOpts, #ddb2_list_tags_of_resource.tags, {ok, []}).
 
 %%%------------------------------------------------------------------------------
 %%% PutItem
@@ -1732,7 +2730,7 @@ put_item(Table, Item, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_PutItem.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_PutItem.html]
 %%
 %% ===Example===
 %%
@@ -1754,6 +2752,25 @@ put_item(Table, Item, Opts) ->
 %%         [{<<":f">>, <<"Amazon DynamoDB">>},
 %%          {<<":s">>, <<"How do I update multiple items?">>}]}]),
 %% '
+%%
+%% The ConditionExpression option can be used in place of the legacy Expected parameter.
+%%
+%% `
+%% {ok, []} = 
+%%     erlcloud_ddb2:put_item(
+%%       <<"Thread">>, 
+%%       [{<<"LastPostedBy">>, <<"fred@example.com">>},
+%%        {<<"ForumName">>, <<"Amazon DynamoDB">>},
+%%        {<<"LastPostDateTime">>, <<"201303190422">>},
+%%        {<<"Tags">>, {ss, [<<"Update">>, <<"Multiple Items">>, <<"HelpMe">>]}},
+%%        {<<"Subject">>, <<"How do I update multiple items?">>},
+%%        {<<"Message">>, 
+%%         <<"I want to update multiple items in a single API call. What is the best way to do that?">>}],
+%%       [{condition_expression, <<"#forum <> :forum AND attribute_not_exists(#subject)">>},
+%%        {expression_attribute_names, [{<<"#forum">>, <<"ForumName">>}, {<<"#subject">>, <<"Subject">>}]},
+%%        {expression_attribute_values, [{<<":forum">>, <<"Amazon DynamoDB">>}]}]),
+%% '
+%%
 %% @end
 %%------------------------------------------------------------------------------
 -spec put_item(table_name(), in_item(), put_item_opts(), aws_config()) -> put_item_return().
@@ -1796,7 +2813,7 @@ q_opts() ->
      projection_expression_opt(),
      attributes_to_get_opt(),
      consistent_read_opt(),
-     {filter_expression, <<"FilterExpression">>, fun dynamize_expression/1},
+     filter_expression_opt(),
      conditional_op_opt(),
      {query_filter, <<"QueryFilter">>, fun dynamize_conditions/1},
      {limit, <<"Limit">>, fun id/1},
@@ -1836,7 +2853,7 @@ q(Table, KeyConditionsOrExpression, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_Query.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Query.html]
 %%
 %% KeyConditions are treated as a required parameter, which appears to
 %% be the case despite what the documentation says.
@@ -1859,8 +2876,12 @@ q(Table, KeyConditionsOrExpression, Opts) ->
 %%        {index_name, <<"LastPostIndex">>},
 %%        {select, all_attributes},
 %%        {limit, 3},
-%%        {consistent_read, true}]),
+%%        {consistent_read, true},
+%%        {filter_expression, <<"#user = :user">>},
+%%        {expression_attribute_names, [{<<"#user">>, <<"User">>}]},
+%%        {expression_attribute_values, [{<<":user">>, <<"User A">>}]}]),
 %% '
+%%
 %% @end
 %%------------------------------------------------------------------------------
 -spec q(table_name(), conditions() | expression(), q_opts(), aws_config()) -> q_return().
@@ -1874,6 +2895,115 @@ q(Table, KeyConditionsOrExpression, Opts, Config) ->
                ++ AwsOpts),
     out(Return, fun(Json, UOpts) -> undynamize_record(q_record(), Json, UOpts) end, DdbOpts, 
         #ddb2_q.items, {ok, []}).
+
+%%%------------------------------------------------------------------------------
+%%% RestoreTableFromBackup
+%%%------------------------------------------------------------------------------
+
+-type restore_table_from_backup_return() :: ddb_return(#ddb2_restore_table_from_backup{}, #ddb2_table_description{}).
+
+-spec restore_table_from_backup_record() -> record_desc().
+restore_table_from_backup_record() ->
+    {#ddb2_restore_table_from_backup{},
+      [{<<"TableDescription">>, #ddb2_restore_table_from_backup.table_description,
+        fun(V, Opts) -> undynamize_record(table_description_record(), V, Opts) end}
+      ]}.
+
+-spec restore_table_from_backup(binary(), table_name()) -> restore_table_from_backup_return().
+restore_table_from_backup(BackupArn, TargetTableName)
+    when is_binary(BackupArn), is_binary(TargetTableName) ->
+    restore_table_from_backup(BackupArn, TargetTableName, [], default_config()).
+
+-spec restore_table_from_backup(binary(), table_name(), ddb_opts()) -> restore_table_from_backup_return().
+restore_table_from_backup(BackupArn, TargetTableName, Opts)
+    when is_binary(BackupArn), is_binary(TargetTableName) ->
+    restore_table_from_backup(BackupArn, TargetTableName, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_RestoreTableFromBackup.html]
+%%
+%% ===Example===
+%%
+%% Creates a new table from an existing backup.
+%%
+%% `
+%% {ok, Table} =
+%%     erlcloud_ddb2:restore_table_from_backup(<<"BackupArn">>, <<"Forum">>),
+%% '
+%% @end
+%%-------------------------------------------------------------------------------
+-spec restore_table_from_backup(binary(), table_name(), ddb_opts(), aws_config()) -> restore_table_from_backup_return().
+restore_table_from_backup(BackupArn, TargetTableName, Opts, Config)
+    when is_binary(BackupArn), is_binary(TargetTableName) ->
+    {_AwsOpts, DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+     Config,
+     "DynamoDB_20120810.RestoreTableFromBackup",
+     [{<<"BackupArn">>, BackupArn},
+      {<<"TargetTableName">>, TargetTableName}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(restore_table_from_backup_record(), Json, UOpts) end,
+        DdbOpts, #ddb2_restore_table_from_backup.table_description).
+
+%%%------------------------------------------------------------------------------
+%%% RestoreTableToPointInTime
+%%%------------------------------------------------------------------------------
+
+-type restore_table_to_point_in_time_opt() :: {restore_date_time, date_time()} |
+                                              {use_latest_restorable_time, boolean()}.
+
+-spec restore_table_to_point_in_time_opts() -> opt_table().
+restore_table_to_point_in_time_opts() ->
+    [{restore_date_time, <<"RestoreDateTime">>, fun id/1},
+     {use_latest_restorable_time, <<"UseLatestRestorableTime">>, fun id/1}
+    ].
+
+-type restore_table_to_point_in_time_return() :: ddb_return(#ddb2_restore_table_to_point_in_time{}, #ddb2_table_description{}).
+
+-spec restore_table_to_point_in_time() -> record_desc().
+restore_table_to_point_in_time() ->
+    {#ddb2_restore_table_to_point_in_time{},
+      [{<<"TableDescription">>, #ddb2_restore_table_to_point_in_time.table_description,
+        fun(V, Opts) -> undynamize_record(table_description_record(), V, Opts) end}
+      ]}.
+
+-spec restore_table_to_point_in_time(table_name(), table_name()) -> restore_table_to_point_in_time_return().
+restore_table_to_point_in_time(SourceTableName, TargetTableName)
+    when is_binary(SourceTableName), is_binary(TargetTableName) ->
+    restore_table_to_point_in_time(SourceTableName, TargetTableName, [], default_config()).
+
+-spec restore_table_to_point_in_time(table_name(), table_name(), [restore_table_to_point_in_time_opt()]) -> restore_table_to_point_in_time_return().
+restore_table_to_point_in_time(SourceTableName, TargetTableName, Opts)
+    when is_binary(SourceTableName), is_binary(TargetTableName) ->
+    restore_table_to_point_in_time(SourceTableName, TargetTableName, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_RestoreTableToPointInTime.html]
+%%
+%% ===Example===
+%%
+%% Restores the specified table to the specified point in time within EarliestRestorableDateTime and LatestRestorableDateTime.
+%%
+%% `
+%% {ok, Table} =
+%%     erlcloud_ddb2:restore_table_to_point_in_time(<<"Thread">>, <<"ThreadTo">>, [{restore_date_time, 1522926603.688}, {use_latest_restorable_time, false}]),
+%% '
+%% @end
+%%-------------------------------------------------------------------------------
+-spec restore_table_to_point_in_time(table_name(), table_name(), [restore_table_to_point_in_time_opt()], aws_config()) -> restore_table_to_point_in_time_return().
+restore_table_to_point_in_time(SourceTableName, TargetTableName, Opts, Config)
+    when is_binary(SourceTableName), is_binary(TargetTableName) ->
+    {AwsOpts, DdbOpts} = opts(restore_table_to_point_in_time_opts(), Opts),
+    Return = erlcloud_ddb_impl:request(
+      Config,
+      "DynamoDB_20120810.RestoreTableToPointInTime",
+      [{<<"SourceTableName">>, SourceTableName},
+        {<<"TargetTableName">>, TargetTableName}] ++ AwsOpts),
+    out(Return, fun(Json, UOpts) -> undynamize_record(restore_table_to_point_in_time(), Json, UOpts) end,
+        DdbOpts, #ddb2_restore_table_to_point_in_time.table_description).
 
 %%%------------------------------------------------------------------------------
 %%% Scan
@@ -1904,7 +3034,7 @@ scan_opts() ->
      projection_expression_opt(),
      attributes_to_get_opt(),
      consistent_read_opt(),
-     {filter_expression, <<"FilterExpression">>, fun dynamize_expression/1},
+     filter_expression_opt(),
      conditional_op_opt(),
      {scan_filter, <<"ScanFilter">>, fun dynamize_conditions/1},
      {limit, <<"Limit">>, fun id/1},
@@ -1939,7 +3069,7 @@ scan(Table, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_Scan.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Scan.html]
 %%
 %% ===Example===
 %%
@@ -1964,6 +3094,133 @@ scan(Table, Opts, Config) ->
                ++ AwsOpts),
     out(Return, fun(Json, UOpts) -> undynamize_record(scan_record(), Json, UOpts) end, DdbOpts, 
         #ddb2_scan.items, {ok, []}).
+
+%%%------------------------------------------------------------------------------
+%%% TagResource
+%%%------------------------------------------------------------------------------
+
+-type tag_resource_return() :: ok | {error, term()}.
+
+-spec dynamize_tag(tag()) -> jsx:json_term().
+dynamize_tag({Key, Value}) when is_binary(Key), is_binary(Value) ->
+    [{<<"Key">>, Key},
+     {<<"Value">>, Value}].
+
+-spec dynamize_tags(tags()) -> [jsx:json_term()].
+dynamize_tags(Tags) ->
+    [dynamize_tag(Tag) || Tag <- Tags]. 
+
+-spec tag_resource(binary(), tags()) -> tag_resource_return().
+tag_resource(ResourceArn, Tags) ->
+    tag_resource(ResourceArn, Tags, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TagResource.html]
+%%
+%% ===Example===
+%%
+%% Tag the Forum table with example keys.
+%%
+%% `
+%% ok = erlcloud_ddb2:tag_resource(
+%%        <<"arn:aws:dynamodb:us-west-2:111122223333:table/Forum">>, 
+%%        [{<<"example_key1">>, <<"example_value1">>},
+%%         {<<"example_key2">>, <<"example_value2">>}]),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec tag_resource(binary(), tags(), aws_config())
+                  -> tag_resource_return().
+tag_resource(ResourceArn, Tags, Config) ->
+    erlcloud_ddb_impl:request(
+      Config,
+      "DynamoDB_20120810.TagResource",
+      [{<<"ResourceArn">>, ResourceArn},
+       {<<"Tags">>, dynamize_tags(Tags)}]).
+
+%%%------------------------------------------------------------------------------
+%%% UntagResource
+%%%------------------------------------------------------------------------------
+
+-type untag_resource_return() :: ok | {error, term()}.
+
+-spec untag_resource(binary(), [tag_key()]) -> untag_resource_return().
+untag_resource(ResourceArn, TagKeys) ->
+    untag_resource(ResourceArn, TagKeys, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UntagResource.html]
+%%
+%% ===Example===
+%%
+%% Untag the example keys of the Forum table.
+%%
+%% `
+%% ok = erlcloud_ddb2:untag_resource(
+%%        <<"arn:aws:dynamodb:us-west-2:111122223333:table/Forum">>, 
+%%        [<<"example_key1">>, <<"example_key2">>]),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec untag_resource(binary(), [tag_key()], aws_config())
+                  -> untag_resource_return().
+untag_resource(ResourceArn, TagKeys, Config) ->
+    erlcloud_ddb_impl:request(
+      Config,
+      "DynamoDB_20120810.UntagResource",
+      [{<<"ResourceArn">>, ResourceArn},
+       {<<"TagKeys">>, TagKeys}]).
+
+%%%------------------------------------------------------------------------------
+%%% UpdateContinuousBackups
+%%%------------------------------------------------------------------------------
+
+-spec dynamize_point_in_time_recovery_enabled(boolean()) -> jsx:json_term().
+dynamize_point_in_time_recovery_enabled(Value) ->
+    [{<<"PointInTimeRecoveryEnabled">>, Value}].
+
+-type update_continuous_backups_return() :: ddb_return(#ddb2_describe_continuous_backups{}, #ddb2_continuous_backups_description{}).
+
+-spec update_continuous_backups(table_name(), boolean()) -> update_continuous_backups_return().
+update_continuous_backups(TableName, PointInTimeRecoveryEnabled)
+    when is_binary(TableName), is_boolean(PointInTimeRecoveryEnabled) ->
+    update_continuous_backups(TableName, PointInTimeRecoveryEnabled, [], default_config()).
+
+-spec update_continuous_backups(table_name(), boolean(), ddb_opts()) -> update_continuous_backups_return().
+update_continuous_backups(TableName, PointInTimeRecoveryEnabled, Opts)
+    when is_binary(TableName), is_boolean(PointInTimeRecoveryEnabled) ->
+    update_continuous_backups(TableName, PointInTimeRecoveryEnabled, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UpdateContinuousBackups.html]
+%%
+%% ===Example===
+%%
+%% Enables or disables point in time recovery for the specified table.
+%%
+%% `
+%% {ok, Record} =
+%%     erlcloud_ddb2:update_continuous_backups(<<"Thread">>, true),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+-spec update_continuous_backups(table_name(), boolean(), ddb_opts(), aws_config()) -> update_continuous_backups_return().
+update_continuous_backups(TableName, PointInTimeRecoveryEnabled, Opts, Config)
+    when is_binary(TableName), is_boolean(PointInTimeRecoveryEnabled) ->
+    {_AwsOpts, DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+     Config,
+     "DynamoDB_20120810.UpdateContinuousBackups",
+     [{<<"TableName">>, TableName},
+      {<<"PointInTimeRecoverySpecification">>, dynamize_point_in_time_recovery_enabled(PointInTimeRecoveryEnabled)}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(continuous_backups_record(), Json, UOpts) end,
+        DdbOpts, #ddb2_describe_continuous_backups.continuous_backups_description).
 
 %%%------------------------------------------------------------------------------
 %%% UpdateItem
@@ -2048,7 +3305,7 @@ update_item(Table, Key, UpdatesOrExpression, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_UpdateItem.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UpdateItem.html]
 %%
 %% AttributeUpdates is treated as a required parameter because callers
 %% will almost always provide it. If no updates are desired, You can
@@ -2089,6 +3346,69 @@ update_item(Table, Key, UpdatesOrExpression, Opts, Config) ->
         #ddb2_update_item.attributes, {ok, []}).
 
 %%%------------------------------------------------------------------------------
+%%% UpdateGlobalTable
+%%%------------------------------------------------------------------------------
+
+-spec dynamize_replica_update(replica_update()) -> jsx:json_term().
+dynamize_replica_update({create, Replica}) ->
+    [{<<"Create">>, dynamize_replica(Replica)}];
+dynamize_replica_update({delete, Replica}) ->
+    [{<<"Delete">>, dynamize_replica(Replica)}].
+
+-spec update_global_table_record() -> record_desc().
+update_global_table_record() ->
+    {#ddb2_update_global_table{},
+     [{<<"GlobalTableDescription">>, #ddb2_update_global_table.global_table_description, 
+       fun(V, Opts) -> undynamize_record(global_table_description_record(), V, Opts) end}
+     ]}. 
+
+-type update_global_table_return() :: ddb_return(#ddb2_update_global_table{}, #ddb2_global_table_description{}).
+
+-spec update_global_table(table_name(), maybe_list(replica_update()))
+                         -> update_global_table_return().
+update_global_table(GlobalTableName, ReplicaUpdates) ->
+    update_global_table(GlobalTableName, ReplicaUpdates, [], default_config()).
+
+-spec update_global_table(table_name(), maybe_list(replica_update()),
+                          ddb_opts() | aws_config())
+                         -> update_global_table_return().
+update_global_table(GlobalTableName, ReplicaUpdates, Opts) when is_list(Opts) ->
+    update_global_table(GlobalTableName, ReplicaUpdates, Opts, default_config());
+update_global_table(GlobalTableName, ReplicaUpdates, Config) when is_record(Config, aws_config) ->
+    update_global_table(GlobalTableName, ReplicaUpdates, [], Config).
+
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UpdateGlobalTable.html]
+%%
+%% ===Example===
+%%
+%% Update a global table called "Thread" in us-east-1 and eu-west-1.
+%%
+%% `
+%% {ok, Record} =
+%%     erlcloud_ddb2:update_global_table(<<"Thread">>,
+%%                                       [{create, {region_name, <<"us-east-1">>}},
+%%                                        {delete, {region_name, <<"eu-west-1">>}}]),
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+
+-spec update_global_table(table_name(), [replica_update()], ddb_opts(),
+                          aws_config())
+                         -> update_global_table_return().
+update_global_table(GlobalTableName, ReplicaUpdates, Opts, Config) ->
+    {[], DdbOpts} = opts([], Opts),
+    Return = erlcloud_ddb_impl:request(
+               Config,
+               "DynamoDB_20120810.UpdateGlobalTable",
+               [{<<"GlobalTableName">>, GlobalTableName},
+                {<<"ReplicaUpdates">>, dynamize_maybe_list(fun dynamize_replica_update/1, ReplicaUpdates)}]),
+    out(Return, fun(Json, UOpts) -> undynamize_record(update_global_table_record(), Json, UOpts) end, 
+        DdbOpts, #ddb2_update_global_table.global_table_description).
+
+%%%------------------------------------------------------------------------------
 %%% UpdateTable
 %%%------------------------------------------------------------------------------
 
@@ -2100,7 +3420,8 @@ update_item(Table, Key, UpdatesOrExpression, Opts, Config) ->
 -type global_secondary_index_updates() :: maybe_list(global_secondary_index_update()).
 
 -spec dynamize_global_secondary_index_update(global_secondary_index_update()) -> jsx:json_term().
-dynamize_global_secondary_index_update({IndexName, ReadUnits, WriteUnits}) ->
+dynamize_global_secondary_index_update({IndexName, ReadUnits, WriteUnits})
+    when is_integer(ReadUnits), is_integer(WriteUnits) ->
     [{<<"Update">>, [
         {<<"IndexName">>, IndexName},
         {<<"ProvisionedThroughput">>, dynamize_provisioned_throughput({ReadUnits, WriteUnits})}
@@ -2116,7 +3437,8 @@ dynamize_global_secondary_index_update(Index) ->
 dynamize_global_secondary_index_updates(Updates) ->
     dynamize_maybe_list(fun dynamize_global_secondary_index_update/1, Updates).
 
--type update_table_opt() :: {provisioned_throughput, {read_units(), write_units()}} |
+-type update_table_opt() :: {billing_mode, billing_mode()} |
+                            {provisioned_throughput, {read_units(), write_units()}} |
                             {attribute_definitions, attr_defs()} |
                             {global_secondary_index_updates, global_secondary_index_updates()} |
                             {stream_specification, stream_specification()} |
@@ -2125,7 +3447,8 @@ dynamize_global_secondary_index_updates(Updates) ->
 
 -spec update_table_opts() -> opt_table().
 update_table_opts() ->
-    [{provisioned_throughput, <<"ProvisionedThroughput">>, fun dynamize_provisioned_throughput/1},
+    [{billing_mode, <<"BillingMode">>, fun dynamize_billing_mode/1},
+     {provisioned_throughput, <<"ProvisionedThroughput">>, fun dynamize_provisioned_throughput/1},
      {attribute_definitions, <<"AttributeDefinitions">>, fun dynamize_attr_defs/1},
      {global_secondary_index_updates, <<"GlobalSecondaryIndexUpdates">>,
       fun dynamize_global_secondary_index_updates/1},
@@ -2136,7 +3459,7 @@ update_table_record() ->
     {#ddb2_update_table{},
      [{<<"TableDescription">>, #ddb2_update_table.table_description,
        fun(V, Opts) -> undynamize_record(table_description_record(), V, Opts) end}
-     ]}. 
+     ]}.
 
 -spec update_table(table_name(), update_table_opts()) -> update_table_return().
 update_table(Table, Opts) ->
@@ -2145,18 +3468,18 @@ update_table(Table, Opts) ->
 %%------------------------------------------------------------------------------
 %% @doc 
 %% DynamoDB API:
-%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/API_UpdateTable.html]
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UpdateTable.html]
 %%
 %% ===Example===
 %%
 %% Update table "Thread" to have 10 units of read and write capacity.
-%% Update secondary index <<"SubjectIdx">> to have 10 units of read write capacity 
-%% `
+%% Update secondary index `<<"SubjectIdx">>' to have 10 units of read write capacity
+%% ```
 %% erlcloud_ddb2:update_table(
 %%   <<"Thread">>,
 %%   [{provisioned_throughput, {10, 10}},
 %%    {global_secondary_index_updates, [{<<"SubjectIdx">>, 10, 10}]}])
-%% '
+%% '''
 %% @end
 %%------------------------------------------------------------------------------
 -spec update_table(table_name(), update_table_opts(), aws_config()) -> update_table_return();
@@ -2166,18 +3489,102 @@ update_table(Table, Opts, Config) when is_list(Opts) ->
     Return = erlcloud_ddb_impl:request(
                Config,
                "DynamoDB_20120810.UpdateTable",
-               [{<<"TableName">>, Table}]
-                ++ AwsOpts),
+               [{<<"TableName">>, Table} | AwsOpts]),
     out(Return, fun(Json, UOpts) -> undynamize_record(update_table_record(), Json, UOpts) end, 
         DdbOpts, #ddb2_update_table.table_description);
 update_table(Table, ReadUnits, WriteUnits) ->
     update_table(Table, ReadUnits, WriteUnits, [], default_config()).
 
--spec update_table(table_name(), read_units(), write_units(), update_table_opts()) -> update_table_return().
+-spec update_table(table_name(), read_units(), write_units(), update_table_opts()) 
+                  -> update_table_return().
 update_table(Table, ReadUnits, WriteUnits, Opts) ->
     update_table(Table, ReadUnits, WriteUnits, Opts, default_config()).
 
--spec update_table(table_name(), read_units(), write_units(), update_table_opts(), aws_config())
+-spec update_table(table_name(), non_neg_integer(), non_neg_integer(), update_table_opts(), 
+                   aws_config()) 
                   -> update_table_return().
 update_table(Table, ReadUnits, WriteUnits, Opts, Config) ->
     update_table(Table, [{provisioned_throughput, {ReadUnits, WriteUnits}} | Opts], Config).
+
+
+%%%------------------------------------------------------------------------------
+%%% UpdateTimeToLive
+%%%------------------------------------------------------------------------------
+-type update_time_to_live_opt() ::  {attribute_name, attr_name()} | 
+                                    {enabled, boolean()}.
+-type update_time_to_live_opts() :: [update_time_to_live_opt()].
+
+-spec dynamize_attribute_name(binary()) -> jsx:json_term().
+dynamize_attribute_name(Name) when is_binary(Name) -> 
+    Name.
+
+-spec dynamize_enable(boolean()) -> jsx:json_term().
+dynamize_enable(Value) when is_boolean(Value) ->
+    Value.
+
+-spec update_time_to_live_opts() -> opt_table().
+update_time_to_live_opts() ->
+    [{attribute_name, <<"AttributeName">>, fun dynamize_attribute_name/1},
+     {enabled, <<"Enabled">>, fun dynamize_enable/1}].
+
+-spec time_to_live_specification_record() -> record_desc().
+time_to_live_specification_record() ->
+    {#ddb2_time_to_live_specification{},
+     [{<<"AttributeName">>, #ddb2_time_to_live_specification.attribute_name, fun id/2},
+      {<<"Enabled">>, #ddb2_time_to_live_specification.enabled, fun id/2}
+    ]}.
+
+-spec update_time_to_live_record() -> record_desc().
+update_time_to_live_record() ->
+    {#ddb2_update_time_to_live{},
+     [{<<"TimeToLiveSpecification">>, #ddb2_update_time_to_live.time_to_live_specification,
+       fun(V, Opts) -> undynamize_record(time_to_live_specification_record(), V, Opts) end}
+     ]}.
+
+-type update_time_to_live_return() :: ddb_return(#ddb2_update_time_to_live{}, #ddb2_time_to_live_specification{}).
+
+-spec update_time_to_live(table_name(), update_time_to_live_opts()) -> update_time_to_live_return().
+update_time_to_live(Table, Opts) ->
+    update_time_to_live(Table, Opts, default_config()).
+
+-spec update_time_to_live(table_name(), attr_name(), boolean(), aws_config()) -> update_time_to_live_return().
+update_time_to_live(Table, AttributeName, Enabled, Config) ->
+    update_time_to_live(Table, [{attribute_name, AttributeName}, {enabled, Enabled}], Config).
+
+%%------------------------------------------------------------------------------
+%% @doc 
+%% DynamoDB API:
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UpdateTimeToLive.html]
+%%
+%% ===Example===
+%%
+%% Enable TTL for table "SessionData" by setting attribute "ExpirationTime" as expiration date.
+%% ```
+%% erlcloud_ddb2:update_time_to_live(
+%%   <<"SessionData">>,
+%%   [{attribute_name, <<"ExpirationTime">>},
+%%    {enabled, true}])
+%% '''
+%% @end
+%%------------------------------------------------------------------------------
+-spec update_time_to_live(table_name(), update_time_to_live_opts(), aws_config()) -> update_time_to_live_return();
+                         (table_name(), attr_name(), boolean()) -> update_time_to_live_return().
+update_time_to_live(Table, Opts, Config) when is_list(Opts) ->
+    {AwsOpts, DdbOpts} = opts(update_time_to_live_opts(), Opts),
+    Body = [{<<"TableName">>, Table}, {<<"TimeToLiveSpecification">>, AwsOpts}],
+    Return = erlcloud_ddb_impl:request(
+               Config,
+               "DynamoDB_20120810.UpdateTimeToLive",
+               Body),
+    out(Return, fun(Json, UOpts) -> undynamize_record(update_time_to_live_record(), Json, UOpts) end, 
+        DdbOpts, #ddb2_update_time_to_live.time_to_live_specification);
+
+update_time_to_live(Table, AttributeName, Enabled) ->
+    update_time_to_live(Table, [{attribute_name, AttributeName}, {enabled, Enabled}]).
+
+to_binary(X) when is_binary(X) ->
+    X;
+to_binary(X) when is_list(X) ->
+    list_to_binary(X);
+to_binary(X) when is_integer(X) ->
+    integer_to_binary(X).

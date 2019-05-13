@@ -90,28 +90,26 @@
 %%% Library initialization.
 %%%------------------------------------------------------------------------------
 
--spec(new/2 :: (string(), string()) -> aws_config()).
+-spec new(string(), string()) -> aws_config().
 new(AccessKeyID, SecretAccessKey) ->
     #aws_config{access_key_id=AccessKeyID,
                 secret_access_key=SecretAccessKey,
                 retry = fun erlcloud_retry:default_retry/1}.
 
--spec(new/3 :: (string(), string(), string()) -> aws_config()).
+-spec new(string(), string(), string()) -> aws_config().
 new(AccessKeyID, SecretAccessKey, Host) ->
     #aws_config{access_key_id=AccessKeyID,
                 secret_access_key=SecretAccessKey,
                 ddb_streams_host=Host,
                 retry = fun erlcloud_retry:default_retry/1}.
 
--spec(configure/2 :: (string(), string()) -> ok).
+-spec configure(string(), string()) -> ok.
 configure(AccessKeyID, SecretAccessKey) ->
-    put(aws_config, new(AccessKeyID, SecretAccessKey)),
-    ok.
+    erlcloud_config:configure(AccessKeyID, SecretAccessKey, fun new/2).
 
--spec(configure/3 :: (string(), string(), string()) -> ok).
+-spec configure(string(), string(), string()) -> ok.
 configure(AccessKeyID, SecretAccessKey, Host) ->
-    put(aws_config, new(AccessKeyID, SecretAccessKey, Host)),
-    ok.
+    erlcloud_config:configure(AccessKeyID, SecretAccessKey, Host, fun new/3).
 
 default_config() -> erlcloud_aws:default_config().
 
@@ -469,7 +467,8 @@ stream_description_record() ->
 -spec stream_record_record() -> record_desc().
 stream_record_record() ->
     {#ddb_streams_stream_record{},
-     [{<<"Keys">>, #ddb_streams_stream_record.keys, fun undynamize_key/2},
+     [{<<"ApproximateCreationDateTime">>, #ddb_streams_stream_record.approximate_creation_date_time, fun id/2},
+      {<<"Keys">>, #ddb_streams_stream_record.keys, fun undynamize_key/2},
       {<<"NewImage">>, #ddb_streams_stream_record.new_image, fun undynamize_item/2},
       {<<"OldImage">>, #ddb_streams_stream_record.old_image, fun undynamize_item/2},
       {<<"SequenceNumber">>, #ddb_streams_stream_record.sequence_number, fun id/2},
@@ -895,14 +894,8 @@ headers(Config, Operation, Body) ->
     Headers = [{"host", Config#aws_config.ddb_streams_host},
                {"x-amz-target", Operation},
                {"content-type", "application/x-amz-json-1.0"}],
-    Region =
-        case string:tokens(Config#aws_config.ddb_streams_host, ".") of
-            [_, _, Value, _, _] ->
-                Value;
-            _ ->
-                "us-east-1"
-        end,
-    erlcloud_aws:sign_v4(Config, Headers, Body, Region, "dynamodb").
+    Region = erlcloud_aws:aws_region_from_host(Config#aws_config.ddb_streams_host),
+    erlcloud_aws:sign_v4_headers(Config, Headers, Body, Region, "dynamodb").
 
 uri(#aws_config{ddb_streams_scheme = Scheme, ddb_streams_host = Host} = Config) ->
     lists:flatten([Scheme, Host, port_spec(Config)]).
