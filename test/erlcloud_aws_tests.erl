@@ -147,7 +147,7 @@ get_service_status_test(_) ->
     OKStatusEmpty = erlcloud_aws:get_service_status(["sqs", "sns"]),
     meck:expect(erlcloud_httpc, request, fun(_,_,_,_,_,_) -> {ok, {{200, "OK"}, [], StatusJsonS3}} end),
     OKStatus = erlcloud_aws:get_service_status(["cloudformation", "sns", "vpc"]),
-    
+
     [?_assertEqual(proplists:get_value(<<"status">>, S3Status), 0),
      ?_assertEqual(proplists:get_value(<<"service">>, S3Status), <<"s3-eu-central-1">>),
      ?_assertEqual(proplists:get_value(<<"status">>, EC2Status), 2),
@@ -189,7 +189,7 @@ get_url_from_history([{_, {erlcloud_httpc, request, [Url, _, _, _, _, _]}, _}]) 
     Url.
 
 test_url(ExpScheme, ExpHost, ExpPort, ExpPath, Url) ->
-    {ok, {Scheme, _UserInfo, Host, Port, Path, _Query}} = http_uri:parse(Url),
+    {ok, {Scheme, _UserInfo, Host, Port, Path, _Query}} = deprecated_http_uri:parse(Url),
     [?_assertEqual(ExpScheme, Scheme),
      ?_assertEqual(ExpHost, Host),
      ?_assertEqual(ExpPort, Port),
@@ -237,7 +237,7 @@ profile_indirect_test_() ->
            erlcloud_aws:profile( blah ) )
        )
     }.
-    
+
 profile_indirect_role_test_() ->
     {setup, fun profiles_assume_setup/0, fun profiles_assume_cleanup/1,
      ?_test(
@@ -309,14 +309,14 @@ profile_undefined_profile_test_() ->
         ?assertMatch( {error, _}, erlcloud_aws:profile( what ) )
        )
     }.
-    
+
 profile_undefined_indirect_profile_test_() ->
     {setup, fun profiles_test_setup/0, fun profiles_test_cleanup/1,
      ?_test(
         ?assertMatch( {error, _}, erlcloud_aws:profile( whoa ) )
        )
     }.
-    
+
 
 profiles_test_setup() ->
     Profile = <<"

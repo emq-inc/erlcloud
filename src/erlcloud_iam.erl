@@ -13,7 +13,7 @@
 %% IAM API Functions
 -export([
     %% Users
-    get_user/0, get_user/1, get_user/2, 
+    get_user/0, get_user/1, get_user/2,
     list_access_keys/0, list_access_keys/1, list_access_keys/2,
     list_access_keys_all/0, list_access_keys_all/1, list_access_keys_all/2,
     get_access_key_last_used/1, get_access_key_last_used/2,
@@ -27,7 +27,7 @@
     list_attached_user_policies_all/1, list_attached_user_policies_all/2, list_attached_user_policies_all/3,
     get_user_policy/2, get_user_policy/3,
     get_login_profile/1, get_login_profile/2,
-    get_group/1, get_group/2, 
+    get_group/1, get_group/2,
     list_groups/0, list_groups/1, list_groups/2,
     list_groups_all/0, list_groups_all/1, list_groups_all/2,
     list_group_policies/1, list_group_policies/2,
@@ -35,7 +35,7 @@
     get_group_policy/2, get_group_policy/3,
     list_attached_group_policies/1, list_attached_group_policies/2, list_attached_group_policies/3,
     list_attached_group_policies_all/1, list_attached_group_policies_all/2, list_attached_group_policies_all/3,
-    get_role/1, get_role/2, 
+    get_role/1, get_role/2,
     list_roles/0, list_roles/1, list_roles/2,
     list_roles_all/0, list_roles_all/1, list_roles_all/2,
     list_role_policies/1, list_role_policies/2,
@@ -304,7 +304,7 @@ get_group(GroupName) when is_list(GroupName)->
 -spec get_group(string(), aws_config()) -> {ok, proplist()} |  {error, any()}.
 get_group(GroupName, Config) ->
     get_group_impl([{"GroupName", GroupName}], Config).
-    
+
 get_group_impl(GroupNameParam, #aws_config{} = Config) ->
     ItemPath = "/GetGroupResponse/GetGroupResult/Group",
     case iam_query(Config, "GetGroup", GroupNameParam, ItemPath, data_type("Group")) of
@@ -416,7 +416,7 @@ get_role(RoleName) when is_list(RoleName) ->
 -spec get_role(string(), aws_config()) -> {ok, proplist()} |  {error, any()}.
 get_role(RoleName, Config) ->
     get_role_impl([{"RoleName", RoleName}], Config).
-    
+
 get_role_impl(RoleNameParam, #aws_config{} = Config) ->
     ItemPath = "/GetRoleResponse/GetRoleResult/Role",
     case iam_query(Config, "GetRole", RoleNameParam, ItemPath, data_type("Role")) of
@@ -667,7 +667,7 @@ get_instance_profile(ProfileName, #aws_config{} = Config) ->
 -spec get_account_authorization_details() -> {ok, proplist()} |  {error, any()}.
 get_account_authorization_details() ->
     get_account_authorization_details(default_config()).
-  
+
 -spec get_account_authorization_details(aws_config()) -> {ok, proplist()} |  {error, any()}.
 get_account_authorization_details(#aws_config{} = Config) ->
     ItemPath = "/GetAccountAuthorizationDetailsResponse/GetAccountAuthorizationDetailsResult",
@@ -746,7 +746,7 @@ simulate_custom_policy(ActionNames, PolicyInputList, #aws_config{} = Config)
   when is_list(ActionNames), is_list(PolicyInputList) ->
     ItemPath = "/SimulateCustomPolicyResponse/SimulateCustomPolicyResult/"
                "EvaluationResults/member",
-    Params = erlcloud_util:encode_list("ActionNames", ActionNames) ++ 
+    Params = erlcloud_util:encode_list("ActionNames", ActionNames) ++
              erlcloud_util:encode_list("PolicyInputList", PolicyInputList),
     iam_query_all(Config, "SimulateCustomPolicy", Params,
                   ItemPath, data_type("EvaluationResult"));
@@ -758,7 +758,7 @@ simulate_custom_policy(ActionNames, PolicyInputList, ContextEntries, #aws_config
     ItemPath = "/SimulateCustomPolicyResponse/SimulateCustomPolicyResult/"
                "EvaluationResults/member",
 
-    Params = erlcloud_util:encode_list("ActionNames", ActionNames) ++ 
+    Params = erlcloud_util:encode_list("ActionNames", ActionNames) ++
              erlcloud_util:encode_list("PolicyInputList", PolicyInputList) ++
              encode_context_entries(ContextEntries),
     iam_query_all(Config, "SimulateCustomPolicy", Params,
@@ -1055,13 +1055,14 @@ data_fun("Boolean") -> {erlcloud_xml, get_bool};
 data_fun("Uri") -> {?MODULE, get_uri}.
 
 get_uri(Key, Item) ->
-    http_uri:decode(erlcloud_xml:get_text(Key, Item)).
+    % TODO(hong): investigate why we cannot use uri_string:unquote here.
+    deprecated_http_uri:decode(erlcloud_xml:get_text(Key, Item)).
 
 make_list_virtual_mfa_devices_params(undefined, undefined, undefined) ->
     [];
 make_list_virtual_mfa_devices_params(AssignmentStatus, Marker, MaxItems) ->
-    make_list_virtual_mfa_devices_param(AssignmentStatus, "AssignmentStatus") ++ 
-    make_list_virtual_mfa_devices_param(Marker ,"Marker") ++ 
+    make_list_virtual_mfa_devices_param(AssignmentStatus, "AssignmentStatus") ++
+    make_list_virtual_mfa_devices_param(Marker ,"Marker") ++
     make_list_virtual_mfa_devices_param(MaxItems, "MaxItems").
 
 make_list_virtual_mfa_devices_param(undefined, _) ->

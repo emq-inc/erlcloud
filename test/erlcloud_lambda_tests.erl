@@ -102,7 +102,7 @@ mocked_get_alias() ->
        get, '_', <<>>, '_', '_'],
       make_response(<<"{\"AliasArn\":\"arn:aws:lambda:us-east-1:352283894008:"
 "function:name:aliasName\",\"Description\":\"\",\"FunctionVersion\":\"$LATEST\"
-"",\"Name\":\"aliasName\"}">>)
+" ",\"Name\":\"aliasName\"}">>)
     }.
 mocked_get_event_source_mapping() ->
         {
@@ -148,7 +148,7 @@ mocked_get_function_configuration() ->
 "mbda:us-east-1:352283894008:function:name\",\"FunctionName\":\"name\",\"Handl"
 "er\":\"index.process\",\"LastModified\":\"2015-12-10T13:57:48.214+0000\",\"Me"
 "morySize\":512,\"Role\":\"arn:aws:iam::352283894008:role/lambda_kinesis_role\"
-"",\"Runtime\":\"nodejs\",\"Timeout\":30,\"Version\":\"$LATEST\",\"VpcConfig\""
+" ",\"Runtime\":\"nodejs\",\"Timeout\":30,\"Version\":\"$LATEST\",\"VpcConfig\""
 ":null}">>)
     }.
 
@@ -342,7 +342,7 @@ mocked_update_function_configuration() ->
 "mbda:us-east-1:352283894008:function:name\",\"FunctionName\":\"name\",\"Handl"
 "er\":\"index.process\",\"LastModified\":\"2015-12-11T14:31:52.034+0000\",\"Me"
 "morySize\":512,\"Role\":\"arn:aws:iam::352283894008:role/lambda_kinesis_role\"
-"",\"Runtime\":\"nodejs\",\"Timeout\":30,\"Version\":\"$LATEST\",\"VpcConfig\""
+" ",\"Runtime\":\"nodejs\",\"Timeout\":30,\"Version\":\"$LATEST\",\"VpcConfig\""
 ":null}">>)
     }.
 

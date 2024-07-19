@@ -1702,7 +1702,8 @@ create_notification_param_xml({cloud_function, CF}, Acc) -> [{'CloudFunction', [
 -spec get_bucket_and_key(string()) -> {string(), string()}.
 
 get_bucket_and_key(Uri) ->
-  {ok, Parsed} = http_uri:parse(Uri),
+  % TODO(hong): switch to the uri_string module
+  {ok, Parsed} = deprecated_http_uri:parse(Uri),
   {Host, Path} = extract_host_and_path(Parsed),
   extract_location_fields(Host, Path).
 
